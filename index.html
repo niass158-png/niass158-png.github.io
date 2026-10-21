@@ -1,0 +1,1443 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<!-- Politique de sécurité de contenu.
+
+     L'application affiche des intitulés collectés sur des sites que nous ne
+     maîtrisons pas, et les fait relire par l'assistant. Tout est échappé côté
+     code ; ceci est la seconde barrière, celle qui tient même si un
+     échappement venait à être oublié : aucun script ne s'exécute s'il ne vient
+     pas du dossier de l'application ou du CDN de repli.
+
+     · script-src : les fichiers livrés, plus jsdelivr — utilisé seulement si
+       node_modules est absent (voir ensureLib dans app.js).
+     · style-src 'unsafe-inline' : barres et jauges portent leur largeur dans un
+       attribut style ; c'est de la mise en forme, pas du code.
+     · connect-src : le registre Supabase, en REST et en temps réel. L'IA passe
+       par le processus principal, jamais par cette page : api.openai.com n'a
+       donc rien à faire ici.
+     · object-src 'none' : rien à embarquer. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.openai.com; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#115C67">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Registre A&amp;A">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icones/favicon-64.png">
+<link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
+<title>A&amp;A Group — Registre des Offres</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="web.css">
+<!-- Les bibliothèques sont chargées depuis le disque au démarrage (voir app.js) :
+     plus rien à télécharger à l'ouverture, et le module Excel n'est chargé qu'au
+     moment d'un export. -->
+</head>
+<body>
+
+<!-- Icônes (style trait, 24px) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12A9 9 0 0 1 18.5 5.8L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M16 15h2"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-radar" viewBox="0 0 24 24"><path d="M19.07 4.93A10 10 0 1 0 22 12"/><path d="M16.24 7.76A6 6 0 1 0 18 12"/><circle cx="12" cy="12" r="2"/><path d="m13.4 10.6 5.7-5.7"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></symbol>
+    <symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M6 2h12M6 22h12"/><path d="M7 2v4a5 5 0 0 0 5 5 5 5 0 0 0 5-5V2"/><path d="M7 22v-4a5 5 0 0 1 5-5 5 5 0 0 1 5 5v4"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></symbol>
+    <symbol id="i-plus-cercle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></symbol>
+    <symbol id="i-doc-texte" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></symbol>
+    <symbol id="i-doc-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m21 16-5-5L5 20"/></symbol>
+    <symbol id="i-doc-tableur" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16M15 4v16"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.9-.9L3 21l1.9-4.6A8.4 8.4 0 0 1 4 11.5 8.4 8.4 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></symbol>
+    <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="M21.4 11.05 12.2 20.2a5.5 5.5 0 0 1-7.8-7.8l9.2-9.2a3.7 3.7 0 0 1 5.2 5.2l-9.2 9.2a1.8 1.8 0 0 1-2.6-2.6l8.5-8.5"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 17V5"/><path d="m7 10 5-5 5 5"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-cloud-down" viewBox="0 0 24 24"><path d="M7 17a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 8.5a4.25 4.25 0 0 1 .5 8.45"/><path d="M12 12v8"/><path d="m9 17 3 3 3-3"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M4 22V4"/><path d="M4 5h11l-1.5 3.5L15 12H4"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/><path d="M9 20h6M12 14v6"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20a7 7 0 0 1 14 0"/><path d="M17 5a3.5 3.5 0 0 1 0 7M18 20a7 7 0 0 0-3-5.7"/></symbol>
+    <symbol id="i-thumb-up" viewBox="0 0 24 24"><path d="M7 21V10l5-8a2.5 2.5 0 0 1 2.5 3L13 10h5.5a2 2 0 0 1 2 2.4l-1.4 6.5A2 2 0 0 1 17 21z"/><path d="M7 10H3v11h4"/></symbol>
+    <symbol id="i-thumb-down" viewBox="0 0 24 24"><path d="M17 3v11l-5 8a2.5 2.5 0 0 1-2.5-3L11 14H5.5a2 2 0 0 1-2-2.4l1.4-6.5A2 2 0 0 1 7 3z"/><path d="M17 14h4V3h-4"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15v3M12 9v9M17 5v13"/></symbol>
+    <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h6a4 4 0 0 0 0-8H9a4 4 0 0 1 0-8h6"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6"/></symbol>
+  </defs>
+</svg>
+
+<div class="shell">
+
+<!-- ============================================================ Rail latéral -->
+<aside class="rail">
+  <div class="rail-brand">
+    <img class="rail-logo" src="assets/logo-aa-group-blanc.svg" alt="A&amp;A Group — Strategy | Finance | Delivery">
+    <span class="rail-mark" aria-hidden="true">A&amp;A</span>
+    <div class="rail-app">Registre des Offres</div>
+  </div>
+
+  <nav class="rail-nav" id="tabs" aria-label="Sections">
+    <button type="button" class="nav-item is-active" data-tab="veille"><svg class="ico"><use href="#i-radar"/></svg><span class="nav-label">Veille &amp; registre</span><span class="nav-n" id="tab-n-veille"></span></button>
+    <button type="button" class="nav-item" data-tab="go"><svg class="ico"><use href="#i-route"/></svg><span class="nav-label">Offres GO</span><span class="nav-n" id="tab-n-go"></span></button>
+    <button type="button" class="nav-item" data-tab="attente" title="En attente de décision : offres déposées dont le résultat n'est pas encore connu"><svg class="ico"><use href="#i-hourglass"/></svg><span class="nav-label">En attente</span><span class="nav-n" id="tab-n-attente"></span></button>
+    <button type="button" class="nav-item" data-tab="soumissions"><svg class="ico"><use href="#i-flag"/></svg><span class="nav-label">Soumissions</span><span class="nav-n" id="tab-n-soumissions"></span></button>
+    <button type="button" class="nav-item" data-tab="prospection"><svg class="ico"><use href="#i-target"/></svg><span class="nav-label">Prospection</span><span class="nav-n" id="tab-n-prospection"></span></button>
+    <button type="button" class="nav-item" data-tab="bord"><svg class="ico"><use href="#i-chart"/></svg><span class="nav-label">Tableau de bord</span></button>
+  </nav>
+
+  <div class="rail-sep" role="presentation"></div>
+
+  <nav class="rail-nav rail-nav-tools" aria-label="Outils">
+    <button type="button" class="nav-item" id="sources-btn"><svg class="ico"><use href="#i-cloud-down"/></svg><span class="nav-label">Sources de veille</span><span class="nav-n" id="nav-n-sources"></span></button>
+    <button type="button" class="nav-item" id="contacts-btn"><svg class="ico"><use href="#i-users"/></svg><span class="nav-label">Contacts</span></button>
+    <button type="button" class="nav-item" data-tab="corbeille"><svg class="ico"><use href="#i-trash"/></svg><span class="nav-label">Corbeille</span><span class="nav-n" id="tab-n-corbeille"></span></button>
+    <button type="button" class="nav-item" id="settings-btn"><svg class="ico"><use href="#i-settings"/></svg><span class="nav-label">Paramètres</span></button>
+  </nav>
+
+  <div class="rail-foot">
+    <button class="rail-maj" id="rail-maj" type="button" hidden>
+      <svg class="ico"><use href="#i-download"/></svg>
+      <span>
+        <span class="rail-maj-title">Mise à jour prête</span>
+        <span class="rail-maj-text" id="rail-maj-text">Redémarrer pour l'installer</span>
+      </span>
+    </button>
+    <button class="rail-veille" id="rail-veille" type="button" data-state="idle" title="Relancer la veille">
+      <svg class="ico"><use href="#i-refresh"/></svg>
+      <span>
+        <span class="rail-veille-when" id="rail-veille-when">Veille non lancée</span>
+        <span class="rail-veille-text" id="rail-veille-text">Cliquez pour chercher les nouvelles offres</span>
+      </span>
+    </button>
+    <button class="rail-user" id="user-chip" type="button" title="Mon profil et la connexion">
+      <span class="avatar" id="user-avatar">?</span>
+      <span class="rail-user-body">
+        <span class="user-name" id="user-name">Me présenter</span>
+        <span class="conn" id="conn" data-state="connecting"><span class="dot"></span><span id="conn-label">Connexion…</span></span>
+      </span>
+    </button>
+  </div>
+</aside>
+
+<!-- ============================================================ Espace de travail -->
+<div class="workspace">
+
+<header class="topbar">
+  <div class="global-search">
+    <svg class="ico"><use href="#i-search"/></svg>
+    <!-- Le champ était enveloppé d'un <label> dont le seul texte était « Ctrl K » :
+         les lecteurs d'écran annonçaient donc le champ principal de l'application
+         par un raccourci clavier. Le nom passe par aria-label, et le raccourci
+         redevient une simple indication visuelle. -->
+    <input id="search" type="search" autocomplete="off"
+           aria-label="Rechercher une offre, un émetteur ou un secteur"
+           placeholder="Rechercher une offre, un émetteur, un secteur…">
+    <kbd aria-hidden="true">Ctrl K</kbd>
+  </div>
+  <div class="topbar-collab">
+    <!-- Qui est connecté en ce moment, et ce qu'il regarde. -->
+    <button type="button" class="presence" id="presence" aria-haspopup="dialog" title="Collaborateurs en ligne et activité récente">
+      <span class="presence-avatars" id="presence-avatars"></span>
+      <span class="presence-label" id="presence-label">Hors ligne</span>
+    </button>
+    <!-- Recharge tout ce que les collègues ont changé (GO / NO GO, statuts, notes…). -->
+    <button type="button" class="sync-btn" id="sync-btn" title="Recharger les dernières modifications de l'équipe (F5)">
+      <svg class="ico"><use href="#i-refresh"/></svg>
+      <span class="sync-text"><span class="sync-title">Actualiser</span><span class="sync-sub" id="sync-sub">—</span></span>
+    </button>
+  </div>
+  <div class="presence-pop" id="presence-pop" hidden>
+    <div class="presence-pop-head">En ligne <span class="count-pill" id="presence-n"></span></div>
+    <div class="presence-list" id="presence-list"></div>
+    <div class="presence-pop-head">Activité récente de l'équipe</div>
+    <div class="activite-list" id="activite-list"><p class="muted-line">Chargement…</p></div>
+  </div>
+</header>
+
+<main class="page" id="view-veille">
+
+  <!-- ============================================================ Titre + actions -->
+  <section class="page-head">
+    <div>
+      <h1>Opportunités en cours</h1>
+      <p class="page-sub" id="today-label"></p>
+    </div>
+    <div class="page-actions">
+      <button class="btn" id="refresh-btn" type="button">
+        <svg class="ico"><use href="#i-refresh"/></svg><span class="btn-label">Actualiser la veille</span>
+      </button>
+      <button class="btn" id="export-btn" type="button">
+        <svg class="ico"><use href="#i-download"/></svg>Exporter Excel
+      </button>
+      <button class="btn primary" id="add-btn" type="button">
+        <svg class="ico"><use href="#i-plus"/></svg>Nouvelle offre
+      </button>
+    </div>
+  </section>
+
+  <!-- ============================================================ Veille -->
+  <section class="veille" id="veille" data-state="idle">
+    <div class="veille-icon"><svg class="ico"><use href="#i-radar"/></svg></div>
+    <div class="veille-body">
+      <div class="veille-title">Veille automatique <span class="veille-when" id="veille-when"></span>
+        <button class="link-btn" id="veille-sources-link" type="button">Gérer les sources</button>
+      </div>
+      <div class="veille-text" id="veille-text">Collecte des nouvelles offres depuis les sources publiques (APS, SenOffre).</div>
+      <div class="veille-sources" id="veille-sources"></div>
+      <div class="veille-error" id="veille-error" hidden></div>
+      <div class="veille-manuels" id="veille-manuels"></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ Indicateurs -->
+  <section class="kpis" id="kpis"></section>
+
+  <!-- ============================================================ Filiales -->
+  <nav class="filiale-tabs" id="filiale-tabs" aria-label="Filtrer par filiale"></nav>
+
+  <!-- ============================================================ Corps -->
+  <div class="layout">
+    <aside class="filters" id="filters">
+      <div class="filters-head">
+        <span><svg class="ico"><use href="#i-filter"/></svg>Filtres</span>
+        <button class="link-btn" id="reset" type="button">Tout effacer</button>
+      </div>
+      <div id="filter-groups"></div>
+    </aside>
+
+    <section class="results">
+      <div class="priority" id="priority" hidden>
+        <div class="priority-head">
+          <span class="priority-title"><svg class="ico"><use href="#i-bell"/></svg>À traiter en priorité</span>
+          <span class="priority-sub" id="priority-sub"></span>
+        </div>
+        <div class="priority-rows" id="priority-rows"></div>
+      </div>
+
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <span class="result-count" id="count" role="status" aria-live="polite"></span>
+          <div class="active-chips" id="active-chips"></div>
+        </div>
+        <div class="toolbar-right">
+          <label class="select-wrap">
+            <span>Trier</span>
+            <select id="sort">
+              <option value="echeance">Échéance la plus proche</option>
+              <option value="recent">Ajout le plus récent</option>
+              <option value="titre">Titre (A → Z)</option>
+              <option value="pertinence">Pertinence A&amp;A</option>
+            </select>
+          </label>
+          <div class="view-toggle" role="group" aria-label="Affichage">
+            <button type="button" data-view="cards" class="is-active" title="Cartes"><svg class="ico"><use href="#i-grid"/></svg></button>
+            <button type="button" data-view="table" title="Tableau"><svg class="ico"><use href="#i-list"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="note-attente" id="registre-attente" hidden></div>
+
+      <div class="grid" id="grid"></div>
+      <div class="table-wrap" id="table-wrap" hidden>
+        <table class="table">
+          <thead><tr><th>Échéance</th><th>Offre</th><th>Filiale</th><th>Montant</th><th>Suivi</th></tr></thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+
+      <div class="state" id="loading">
+        <div class="spinner"></div>
+        <p>Chargement du registre…</p>
+      </div>
+      <div class="state" id="empty" hidden>
+        <svg class="ico state-ico"><use href="#i-search"/></svg>
+        <p class="state-title">Aucune offre ne correspond</p>
+        <p>Modifiez la recherche ou effacez les filtres.</p>
+        <button class="btn" type="button" id="empty-reset">Effacer les filtres</button>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- ============================================================ Suivi des soumissions -->
+<main class="page" id="view-attente" hidden>
+  <section class="page-head">
+    <div>
+      <h1>En attente de décision</h1>
+      <p class="page-sub">Offres déposées dont le résultat n'est pas encore connu. Elles ne figurent plus dans « Veille &amp; registre » ; dès que le résultat est enregistré, elles rejoignent l'historique des Soumissions.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn" id="export-attente-btn" type="button"><svg class="ico"><use href="#i-download"/></svg>Exporter</button>
+      <button class="btn primary" id="attente-add-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg>Ajouter une offre déposée</button>
+    </div>
+  </section>
+
+  <section class="kpis" id="kpis-attente"></section>
+
+  <div class="subtabs"><div class="filiale-tabs" id="attente-filiales"></div></div>
+
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <span class="result-count" id="attente-count" role="status" aria-live="polite"></span>
+      <div class="chips" id="attente-filtres"></div>
+    </div>
+    <div class="toolbar-right">
+      <label class="select-wrap search-mini"><span>Chercher</span><input id="attente-recherche" type="search" placeholder="Titre, autorité…" autocomplete="off" spellcheck="false"></label>
+      <label class="select-wrap">
+        <span>Trier</span>
+        <select id="attente-tri">
+          <option value="attente">Attente la plus longue</option>
+          <option value="recent">Dépôt le plus récent</option>
+          <option value="depouillement">Dépouillement le plus proche</option>
+          <option value="autorite">Autorité contractante (A → Z)</option>
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <div class="attente-liste" id="attente-liste"></div>
+  <div class="state" id="attente-vide" hidden>
+    <svg class="ico state-ico"><use href="#i-hourglass"/></svg>
+    <p class="state-title" id="attente-vide-titre">Aucune offre en attente de décision</p>
+    <p id="attente-vide-texte">Une offre arrive ici dès qu'elle est déposée (statut « Soumise » ou date de dépôt renseignée), et en repart dès que son résultat est enregistré.</p>
+  </div>
+</main>
+
+<main class="page" id="view-soumissions" hidden>
+  <section class="page-head">
+    <div>
+      <h1>Suivi des soumissions</h1>
+      <p class="page-sub">Offres déposées, en cours d'évaluation et historique des résultats.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn" id="export-suivi-btn" type="button"><svg class="ico"><use href="#i-download"/></svg>Exporter le tableau de suivi</button>
+      <button class="btn primary" id="soumission-add-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg>Ajouter une soumission</button>
+    </div>
+  </section>
+
+  <section class="kpis" id="kpis-suivi"></section>
+
+  <div class="subtabs"><div class="filiale-tabs" id="suivi-filiales"></div></div>
+
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <span class="result-count" id="suivi-count"></span>
+      <div class="chips" id="suivi-filters"></div>
+    </div>
+    <div class="toolbar-right">
+      <label class="select-wrap"><span>Année</span><select id="suivi-annee"></select></label>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="table table-suivi">
+      <thead><tr>
+        <th>#</th><th>Intitulé / objet du marché</th><th>Autorité contractante</th><th>Type d'avis</th>
+        <th>Date limite</th><th>Dépouillement</th><th>Relance</th><th>Commentaire</th><th>Résultat</th>
+      </tr></thead>
+      <tbody id="suivi-body"></tbody>
+    </table>
+  </div>
+  <div class="state" id="suivi-empty" hidden>
+    <svg class="ico state-ico"><use href="#i-flag"/></svg>
+    <p class="state-title">Aucune soumission enregistrée</p>
+    <p>Une offre apparaît ici dès qu'elle passe au statut « Soumise », ou dès qu'une date de dépôt est renseignée dans sa fiche.</p>
+  </div>
+</main>
+
+<!-- ============================================================ Prospection -->
+<main class="page" id="view-prospection" hidden>
+  <section class="page-head">
+    <div>
+      <h1>Prospection &amp; angles d'attaque</h1>
+      <p class="page-sub">Besoins repérés chez les structures cibles, hors appels d'offres publiés.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn" id="export-opp-btn" type="button"><svg class="ico"><use href="#i-download"/></svg>Exporter</button>
+      <button class="btn primary" id="opp-add-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg>Nouvelle opportunité</button>
+    </div>
+  </section>
+
+  <section class="kpis" id="kpis-opp"></section>
+
+  <section class="opp-arbitrage" id="opp-arbitrage" hidden></section>
+
+  <div class="toolbar">
+    <div class="toolbar-left"><span class="result-count" id="opp-count"></span></div>
+    <div class="toolbar-right">
+      <label class="select-wrap"><span>Trier</span>
+        <select id="opp-sort">
+          <option value="score">Score décroissant</option>
+          <option value="priorite">Priorité</option>
+          <option value="structure">Structure (A → Z)</option>
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <div class="grid opp-grid" id="opp-grid"></div>
+  <div class="state" id="opp-empty" hidden>
+    <svg class="ico state-ico"><use href="#i-target"/></svg>
+    <p class="state-title">Aucune opportunité</p>
+    <p>Ajoutez les structures dont vous avez repéré un besoin, avec l'angle d'approche prévu.</p>
+  </div>
+</main>
+
+<!-- ============================================================ Offres GO -->
+<main class="page" id="view-go" hidden>
+  <section class="page-head">
+    <div>
+      <h1>Offres tranchées GO</h1>
+      <p class="page-sub">Ce qui reste à faire, par qui et pour quand, jusqu'au dépôt du dossier.</p>
+    </div>
+  </section>
+
+  <section class="kpis" id="kpis-go"></section>
+
+  <div class="subtabs"><div class="filiale-tabs" id="go-filiales"></div></div>
+
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <span class="result-count" id="go-count"></span>
+      <div class="chips" id="go-filters"></div>
+    </div>
+  </div>
+
+  <div class="go-grid" id="go-grid"></div>
+  <div class="state" id="go-empty" hidden>
+    <svg class="ico state-ico"><use href="#i-thumb-up"/></svg>
+    <p class="state-title">Aucune offre tranchée GO</p>
+    <p>Ouvrez la fiche d'une offre et cliquez « Trancher : GO » — elle arrive aussitôt ici avec son plan de travail.</p>
+  </div>
+</main>
+
+<!-- ============================================================ Tableau de bord -->
+<main class="page" id="view-bord" hidden>
+  <section class="page-head">
+    <div>
+      <h1>Tableau de bord du groupe</h1>
+      <p class="page-sub" id="bord-sous">État des lieux de l'année, filiale par filiale.</p>
+    </div>
+    <div class="page-actions">
+      <label class="select-wrap"><span>Année</span><select id="bord-annee"></select></label>
+      <button class="btn primary" id="bord-export" type="button"><svg class="ico"><use href="#i-download"/></svg>Exporter l'état des lieux</button>
+    </div>
+  </section>
+
+  <section class="bord-bloc">
+    <div class="bord-tete">
+      <div>
+        <h2>Où les offres se perdent</h2>
+        <p class="page-sub">De la collecte au résultat. Chaque marche s'ouvre d'un clic.</p>
+      </div>
+      <span class="bord-frais" id="bord-frais" title="Le tableau se recalcule dès qu'une offre change"></span>
+    </div>
+    <div class="entonnoir" id="bord-entonnoir"></div>
+  </section>
+
+  <section class="bord-bloc">
+    <h2>L'année en un damier</h2>
+    <p class="page-sub">Une case par filiale et par mois : plus la teinte est foncée, plus il y a eu d'offres. Une case vide est un mois sans rien.</p>
+    <div class="damier-wrap"><table class="damier" id="bord-damier"></table></div>
+    <div class="damier-legende">
+      <span>Moins</span>
+      <span class="damier-echelle"><i class="d1"></i><i class="d3"></i><i class="d5"></i><i class="d7"></i></span>
+      <span>Plus</span>
+    </div>
+  </section>
+
+  <div class="bord-deux">
+    <section class="bord-bloc">
+      <h2>Le même entonnoir, par filiale</h2>
+      <p class="page-sub">À la même échelle, pour comparer d'un coup d'œil.</p>
+      <div id="bord-minis"></div>
+    </section>
+    <section class="bord-bloc">
+      <h2>Ce que le tableau dit</h2>
+      <p class="page-sub">Réécrit tout seul à chaque changement du registre.</p>
+      <ul class="bord-lecture" id="bord-lecture"></ul>
+    </section>
+  </div>
+
+  <div class="table-wrap">
+    <table class="table table-bord">
+      <thead id="bord-thead"></thead>
+      <tbody id="bord-table"></tbody>
+    </table>
+  </div>
+  <p class="bord-pied" id="bord-pied"></p>
+</main>
+
+<!-- ============================================================ Corbeille -->
+<main class="page" id="view-corbeille" hidden>
+  <section class="page-head">
+    <div>
+      <h1>Corbeille</h1>
+      <p class="page-sub">Offres écartées à la main ou devenues obsolètes. Rien n'est effacé sans décision.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn primary" id="audit-btn" type="button"><svg class="ico"><use href="#i-radar"/></svg>Auditer le sourcing</button>
+    </div>
+  </section>
+
+  <section class="kpis" id="kpis-corbeille"></section>
+
+  <p class="corb-note">Une offre dont la date limite est dépassée de plus de <b>30 jours</b> rejoint la corbeille automatiquement —
+    sauf si elle a été tranchée <b>GO</b>, déposée, gagnée ou perdue : ces dossiers-là restent au registre. Une offre en corbeille
+    reste consultable et revient au registre d'un clic. Un <b>administrateur</b> peut l'effacer définitivement : cochez les offres
+    sans intérêt, puis « Supprimer définitivement ». Les dossiers engagés ne partent jamais dans un effacement groupé.</p>
+
+  <div class="toolbar corb-toolbar">
+    <div class="toolbar-left">
+      <span class="result-count" id="corbeille-count"></span>
+      <div class="chips" id="corbeille-filters">
+        <button type="button" class="chip is-active" data-corb="">Toutes</button>
+        <button type="button" class="chip" data-corb="auto">Archivées automatiquement</button>
+        <button type="button" class="chip" data-corb="nettoyage">Nettoyages et audits</button>
+        <button type="button" class="chip" data-corb="manuel">Supprimées à la main</button>
+      </div>
+    </div>
+    <div class="toolbar-right">
+      <select id="corbeille-lot" class="corb-lot" title="Ne montrer qu'un lot de suppression"><option value="">Tous les lots</option></select>
+      <label class="corb-search"><svg class="ico"><use href="#i-search"/></svg>
+        <input type="search" id="corbeille-recherche" placeholder="Chercher dans la corbeille…" autocomplete="off"></label>
+    </div>
+  </div>
+
+  <div class="corb-selbar" id="corbeille-selbar" hidden>
+    <span id="corbeille-selnb"></span>
+    <button class="btn small" type="button" id="corbeille-sel-restaurer"><svg class="ico"><use href="#i-refresh"/></svg>Restaurer la sélection</button>
+    <button class="btn small danger" type="button" data-admin-only id="corbeille-sel-effacer"><svg class="ico"><use href="#i-trash"/></svg>Supprimer définitivement</button>
+    <button class="link-btn" type="button" id="corbeille-sel-vider">Tout désélectionner</button>
+  </div>
+
+  <div class="table-wrap">
+    <table class="table corb-table">
+      <colgroup><col class="c-chk"><col class="c-titre"><col class="c-fil"><col class="c-date"><col class="c-motif"><col class="c-par"><col class="c-act"></colgroup>
+      <thead><tr>
+        <th class="corb-chk"><input type="checkbox" id="corbeille-tout" title="Cocher toutes les offres affichées"></th>
+        <th>Intitulé / objet</th><th>Filiale</th><th>Date limite</th><th>Motif</th><th>Mise en corbeille</th><th></th>
+      </tr></thead>
+      <tbody id="corbeille-body"></tbody>
+    </table>
+  </div>
+  <div class="state" id="corbeille-empty" hidden>
+    <svg class="ico state-ico"><use href="#i-trash"/></svg>
+    <p class="state-title" id="corbeille-empty-titre">La corbeille est vide</p>
+    <p id="corbeille-empty-texte">Aucune offre supprimée ni archivée pour le moment.</p>
+  </div>
+</main>
+
+</div><!-- /.workspace -->
+</div><!-- /.shell -->
+
+<!-- ============================================================ Fiche offre (panneau latéral) -->
+<dialog class="drawer" id="detail">
+  <div class="drawer-head">
+    <div class="drawer-top">
+      <div class="badges" id="dlg-badges"></div>
+      <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <h2 id="dlg-title"></h2>
+    <div class="drawer-emitter" id="dlg-emitter"></div>
+    <div class="deadline-box" id="dlg-deadline"></div>
+    <div class="dlg-collab"><span id="dlg-maj"></span><span class="dlg-presents" id="dlg-presents"></span></div>
+  </div>
+
+  <div class="drawer-body">
+    <div class="corb-bandeau" id="dlg-corb" hidden></div>
+
+    <div class="block prov-block" id="dlg-prov"></div>
+
+    <div class="block pert-block" id="dlg-pert"></div>
+
+    <div data-hors-corbeille class="block">
+      <div class="block-label">Statut de suivi</div>
+      <div class="pipeline" id="dlg-pipeline"></div>
+      <div class="qui-a-fait" id="dlg-statut-par"></div>
+    </div>
+
+    <div data-hors-corbeille class="block assign-block">
+      <div class="block-label">Responsable</div>
+      <div class="assign-row">
+        <input type="text" id="dlg-assigne" placeholder="Nom du collaborateur">
+        <button class="btn small" id="dlg-claim" type="button"><svg class="ico"><use href="#i-user"/></svg>M'assigner</button>
+      </div>
+    </div>
+
+    <div data-hors-corbeille class="block elig-block" id="dlg-elig">
+      <div class="block-label">Éligibilité <span class="decision-badge" id="dlg-elig-verdict"></span>
+        <button type="button" class="link-btn elig-profil-lien" id="dlg-elig-profil">Profil d'A&amp;A</button></div>
+      <div id="dlg-elig-corps"></div>
+      <div class="elig-ia" id="elig-ia">
+        <button type="button" class="btn small" id="elig-ia-lancer" title="L'IA relève dans le DAO les critères éliminatoires et vous les propose ; rien n'est ajouté sans votre accord"><svg class="ico"><use href="#i-sparkle"/></svg>Lire le DAO avec l'IA</button>
+        <div class="elig-ia-panneau" id="elig-ia-panneau" hidden></div>
+      </div>
+      <details class="elig-ajout">
+        <summary>Ajouter une exigence du DAO</summary>
+        <form id="elig-form" class="elig-form" autocomplete="off">
+          <input name="texte" class="elig-texte-saisie" required
+                 placeholder="Recopiez l'exigence telle qu'écrite dans le DAO — ex. « Chiffre d'affaires moyen ≥ 100 000 000 FCFA »">
+          <select name="type" title="Nature de l'exigence">
+            <option value="chiffre_affaires">Chiffre d'affaires</option>
+            <option value="experience">Ancienneté</option>
+            <option value="references">Références similaires</option>
+            <option value="certification">Certification</option>
+            <option value="agrement">Agrément</option>
+            <option value="personnel">Personnel clé</option>
+            <option value="autre" selected>Autre</option>
+          </select>
+          <input name="valeur" inputmode="decimal" placeholder="Seuil (nombre)">
+          <input name="code" placeholder="Référence (ISO 27001…)">
+          <select name="groupable" title="Le DAO permet-il qu'un partenaire du groupement apporte cette exigence ?">
+            <option value="">Partenaire : non précisé</option>
+            <option value="oui">Partenaire : admis</option>
+            <option value="non">Partenaire : exclu</option>
+          </select>
+          <label class="check"><input type="checkbox" name="bloquant" checked> Éliminatoire</label>
+          <button class="btn small primary" type="submit">Ajouter</button>
+        </form>
+        <p class="help">Le type et le seuil sont devinés à la frappe ; corrigez-les avant d'ajouter si besoin. Dans le doute, laissez l'exigence éliminatoire.</p>
+      </details>
+    </div>
+
+    <div data-hors-corbeille class="block" id="dlg-gonogo">
+      <div class="block-label">Arbitrage GO / NO GO <span class="decision-badge" id="dlg-decision"></span></div>
+      <div class="gonogo-actions">
+        <button class="btn small" id="dlg-ask" type="button"><svg class="ico"><use href="#i-mail"/></svg>Demander l'arbitrage par mail</button>
+        <button class="btn small go" id="dlg-go" type="button"><svg class="ico"><use href="#i-thumb-up"/></svg>Trancher : GO</button>
+        <button class="btn small nogo" id="dlg-nogo" type="button"><svg class="ico"><use href="#i-thumb-down"/></svg>Trancher : NO GO</button>
+      </div>
+      <div class="votes" id="dlg-votes"></div>
+      <details class="vote-add">
+        <summary>Enregistrer l'avis d'un collaborateur</summary>
+        <form id="vote-form" class="vote-form">
+          <input name="nom" placeholder="Nom" required>
+          <select name="avis"><option>GO</option><option>NO GO</option><option>Sans avis</option></select>
+          <input name="motif" placeholder="Motif (facultatif)">
+          <button class="btn small primary" type="submit">Ajouter</button>
+        </form>
+      </details>
+    </div>
+
+    <div data-hors-corbeille class="block">
+      <div class="block-label">Suivi de la soumission</div>
+      <div class="suivi-grid">
+        <label><span>Date de dépôt</span><input type="date" id="dlg-date-soumission"></label>
+        <label><span>Dépouillement</span><input type="date" id="dlg-date-depouillement"></label>
+        <label><span>Relance</span><input type="date" id="dlg-date-relance"></label>
+        <label><span>Résultat</span>
+          <select id="dlg-resultat">
+            <option value="">—</option>
+            <option>En attente</option>
+            <option>Retenu (présélection)</option>
+            <option>Gagné</option>
+            <option>Perdu</option>
+            <option>Retrait / marché annulé</option>
+          </select>
+        </label>
+        <label class="wide"><span>Commentaire de suivi</span><textarea id="dlg-commentaire-suivi" rows="2" placeholder="Relances, notes obtenues, prochaines étapes…"></textarea></label>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="block-label">Description</div>
+      <p class="desc" id="dlg-desc"></p>
+    </div>
+
+    <div class="facts">
+      <div class="fact"><span>Filiale A&amp;A</span><b id="dlg-filiale"></b></div>
+      <div class="fact"><span>Type d'offre</span><b id="dlg-type"></b></div>
+      <div class="fact"><span>Secteur</span><b id="dlg-secteur"></b></div>
+      <div class="fact"><span>Région</span><b id="dlg-region"></b></div>
+      <div class="fact"><span>Montant indicatif</span><b id="dlg-montant"></b></div>
+      <div class="fact"><span>Publiée le</span><b id="dlg-pub"></b></div>
+      <div class="fact wide"><span>Critères d'éligibilité</span><b id="dlg-criteres"></b></div>
+      <div class="fact wide"><span>Contact</span><b id="dlg-contact"></b></div>
+    </div>
+
+    <button class="btn block-btn" id="dlg-link" type="button"><svg class="ico"><use href="#i-external"/></svg>Ouvrir la source de l'offre</button>
+
+    <div class="block">
+      <div class="block-label">Documents — TDR, DAO, annexes <span class="count-pill" id="dlg-docs-count"></span></div>
+      <div class="docs" id="dlg-docs"></div>
+      <div class="dropzone" id="dlg-dropzone" data-hors-corbeille>
+        <svg class="ico"><use href="#i-upload"/></svg>
+        <p class="dz-main">Glissez un document ici ou <button type="button" class="link-btn" id="dlg-pick">parcourez vos fichiers</button></p>
+        <p class="muted-line">PDF, Word, Excel, ZIP — 25 Mo maximum. Déposé une fois, visible par toute l'équipe.</p>
+      </div>
+      <button class="btn small" id="dlg-fetch-docs" type="button" data-hors-corbeille><svg class="ico"><use href="#i-cloud-down"/></svg><span>Chercher les documents sur la source</span></button>
+      <input type="file" id="dlg-file-input" multiple hidden>
+      <div class="fiche-export">
+        <button class="btn small" id="dlg-pdf" type="button"><svg class="ico"><use href="#i-doc-texte"/></svg>Fiche en PDF</button>
+        <button class="btn small" id="dlg-word" type="button"><svg class="ico"><use href="#i-file"/></svg>Fiche en Word</button>
+      </div>
+      <p class="help">Le TDR d'origine se télécharge ou s'ouvre depuis la liste ci-dessus. La fiche, elle, rassemble l'offre,
+        ses pièces et son plan de travail dans un document que l'on transmet tel quel.</p>
+    </div>
+
+    <div class="block">
+      <div class="block-label">Notes de l'équipe <span class="count-pill" id="dlg-notes-count"></span></div>
+      <div class="note-input" data-hors-corbeille>
+        <textarea id="dlg-note-text" rows="2" placeholder="Partager une information avec l'équipe… (Ctrl+Entrée pour envoyer)"></textarea>
+        <button class="btn primary small" id="dlg-note-add" type="button"><svg class="ico"><use href="#i-send"/></svg>Publier</button>
+      </div>
+      <p class="help">Les notes sont la mémoire de l'offre : ce qu'on a appris en appelant l'autorité contractante, le partenaire pressenti, la raison d'un retard. Elles restent attachées au dossier et sont visibles par toute l'équipe — contrairement à un message qui se perd dans une boîte de réception.</p>
+      <div class="notes" id="dlg-notes"></div>
+    </div>
+
+    <details class="block journal-block" id="dlg-journal-block">
+      <summary class="block-label">Historique de l'offre <span class="count-pill" id="dlg-journal-count"></span></summary>
+      <div class="journal" id="dlg-journal"><p class="muted-line">Chargement…</p></div>
+      <p class="help">Qui a tranché, changé le statut, assigné ou retiré l'offre, et quand. Tenu par le registre lui-même : chaque poste voit le même historique.</p>
+    </details>
+
+    <div data-hors-corbeille class="block">
+      <div class="block-label">Retirer cette offre</div>
+      <button class="btn small danger" id="dlg-supprimer" type="button"><svg class="ico"><use href="#i-trash"/></svg>Envoyer à la corbeille</button>
+      <p class="help">L'offre quitte le registre sans être effacée : elle reste consultable dans la corbeille et revient d'un clic.</p>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============================================================ Ajouter une offre -->
+<dialog class="modal" id="add-dialog">
+  <form id="add-form">
+    <div class="modal-head">
+      <div>
+        <h2>Nouvelle offre</h2>
+        <p>Elle sera visible immédiatement par toute l'équipe.</p>
+      </div>
+      <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="field full"><label>Intitulé de l'offre *</label><input required name="titre" placeholder="ex : Étude de faisabilité d'un parc agro-industriel"></div>
+        <div class="field"><label>Émetteur *</label><input required name="emetteur" placeholder="ex : APIX"></div>
+        <div class="field"><label>Origine</label><select name="origine"><option>État</option><option>Privé</option></select></div>
+        <div class="field"><label>Filiale A&amp;A recommandée</label>
+          <select name="filiale">
+            <option value="">À qualifier</option>
+            <option value="A&A Strategy">A&amp;A Strategy</option>
+            <option value="A&A Finance and Investment Advisory">A&amp;A Finance and Investment Advisory</option>
+            <option value="A&A Project Delivery">A&amp;A Project Delivery</option>
+            <option value="A&A Knowledge Institute">A&amp;A Knowledge Institute</option>
+          </select>
+        </div>
+        <div class="field"><label>Type d'offre</label>
+          <select name="type">
+            <option>Manifestation d'intérêt (AMI)</option><option>Appel d'offres ouvert (AAO)</option>
+            <option>Étude / Conseil stratégique</option><option>Financement / PPP</option>
+            <option>Exécution / Maîtrise d'œuvre</option><option>Assistance technique</option>
+            <option>Formation</option><option>Partenariat / Recherche</option>
+          </select>
+        </div>
+        <div class="field"><label>Secteur</label>
+          <select name="secteur">
+            <option>Agro-business</option><option>Industrie</option><option>Infrastructures et Transport</option>
+            <option>Mines et Métaux</option><option>Numérique</option><option>Pétrole, Gaz et Transition Énergétique</option>
+            <option>PME</option><option>Santé et Pharma</option>
+          </select>
+        </div>
+        <div class="field"><label>Région</label>
+          <select name="region">
+            <option>National</option><option>Dakar</option><option>Thiès</option><option>Saint-Louis</option>
+            <option>Diourbel</option><option>Louga</option><option>Fatick</option><option>Kaolack</option>
+            <option>Kaffrine</option><option>Tambacounda</option><option>Kédougou</option><option>Kolda</option>
+            <option>Sédhiou</option><option>Ziguinchor</option><option>Matam</option>
+          </select>
+        </div>
+        <div class="field"><label>Date limite *</label><input required type="date" name="dateLimite"></div>
+        <div class="field"><label>Date de publication</label><input type="date" name="datePublication"></div>
+        <div class="field"><label>Montant indicatif</label><input name="montant" placeholder="ex : 40 M FCFA"></div>
+        <div class="field full"><label>Lien vers la source</label><input name="lienSource" type="url" placeholder="https://…"></div>
+        <div class="field full"><label>Description</label><textarea name="description" rows="3"></textarea></div>
+        <div class="field"><label>Critères d'éligibilité</label><input name="criteres"></div>
+        <div class="field"><label>Contact</label><input name="contact"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn primary"><svg class="ico"><use href="#i-plus"/></svg>Ajouter au registre</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============================================================ Sources de veille -->
+<dialog class="modal" id="sources-dialog">
+  <div class="modal-shell">
+    <div class="modal-head">
+      <div>
+        <h2>Sources de veille</h2>
+        <p>Les sites que l'application consulte à chaque collecte, en plus des connecteurs livrés.</p>
+      </div>
+      <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+
+    <div class="modal-body">
+      <details class="catalogue" id="catalogue">
+        <summary>
+          <svg class="ico"><use href="#i-pin"/></svg>
+          <span>
+            <b>Catalogue Afrique de l'Ouest</b>
+            <small>Sénégal, UEMOA, BCEAO, CEDEAO, BOAD, BAD, PNUD — à activer en un clic</small>
+          </span>
+          <span class="catalogue-n" id="catalogue-n"></span>
+        </summary>
+        <div class="catalogue-body">
+          <div class="catalogue-list" id="catalogue-list"></div>
+          <div class="form-actions">
+            <button type="button" class="btn primary" id="catalogue-add">
+              <svg class="ico"><use href="#i-plus"/></svg>Ajouter les sources cochées
+            </button>
+          </div>
+
+          <h4 class="catalogue-sub">À consulter, puis importer</h4>
+          <p class="help">Ces sites protègent leurs annonces, n'ont pas de fiche par avis ou interdisent la collecte automatique : la veille ne les lit pas seule.
+            Chacun s'ouvre dans une fenêtre du logiciel ; vous naviguez, puis <b>Registre → Importer cette page</b> (Ctrl+I) enregistre ce que vous voyez, après le même contrôle que la veille.
+            Ailleurs, surlignez le texte d'un avis et faites Ctrl+Maj+I.</p>
+          <div class="manuel-list" id="manuel-list"></div>
+        </div>
+      </details>
+
+      <div class="sources-list" id="sources-list"></div>
+
+      <form class="source-form" id="source-form">
+        <h3 class="form-title"><svg class="ico"><use href="#i-plus"/></svg>Ajouter une source</h3>
+        <div class="form-grid">
+          <div class="field"><label>Nom de la source *</label><input required name="nom" placeholder="ex : Portail des marchés de l'UEMOA"></div>
+          <div class="field"><label>Mode de lecture</label>
+            <select name="type">
+              <option value="rss">Flux RSS (recommandé)</option>
+              <option value="page">Page web listant des annonces</option>
+              <option value="js">Page qui s'affiche en JavaScript</option>
+            </select>
+          </div>
+          <div class="field full"><label>Adresse (URL) *</label><input required type="url" name="url" placeholder="https://exemple.sn/appels-doffres"></div>
+          <div class="field full"><label>Mots-clés à retenir</label><input name="motsCles" placeholder="appel d'offres, manifestation d'intérêt, consultant — séparés par des virgules"></div>
+          <div class="field"><label>Origine</label><select name="origine"><option>État</option><option>Privé</option></select></div>
+          <div class="field"><label>Type d'offre par défaut</label>
+            <select name="typeOffre">
+              <option value="">Appel d'offres</option>
+              <option>Étude / Conseil stratégique</option><option>Financement / PPP</option>
+              <option>Exécution / Maîtrise d'œuvre</option><option>Assistance technique</option>
+              <option>Formation</option><option>Partenariat / Recherche</option>
+            </select>
+          </div>
+          <div class="field"><label>Secteur par défaut</label>
+            <select name="secteur">
+              <option value="">Non précisé</option>
+              <option>Agro-business</option><option>Industrie</option><option>Infrastructures et Transport</option>
+              <option>Mines et Métaux</option><option>Numérique</option><option>Pétrole, Gaz et Transition Énergétique</option>
+              <option>PME</option><option>Santé et Pharma</option>
+            </select>
+          </div>
+          <div class="field"><label>Région par défaut</label>
+            <select name="region">
+              <option>National</option><option>Dakar</option><option>Thiès</option><option>Saint-Louis</option>
+              <option>Diourbel</option><option>Louga</option><option>Fatick</option><option>Kaolack</option>
+              <option>Kaffrine</option><option>Tambacounda</option><option>Kédougou</option><option>Kolda</option>
+              <option>Sédhiou</option><option>Ziguinchor</option><option>Matam</option>
+            </select>
+          </div>
+          <div class="field full"><label>Note pour l'équipe</label><input name="note" placeholder="ex : portail régional, publications le lundi"></div>
+        </div>
+        <p class="help">Un flux RSS est plus fiable qu'une page : cherchez d'abord une adresse en <code>/feed</code> ou <code>/rss</code> sur le site. Les mots-clés évitent de remonter tout le contenu d'un site généraliste.</p>
+        <div class="form-actions">
+          <button type="submit" class="btn primary"><svg class="ico"><use href="#i-plus"/></svg>Ajouter la source</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="modal-foot">
+      <button type="button" class="btn" data-close>Fermer</button>
+      <button type="button" class="btn primary" id="sources-run"><svg class="ico"><use href="#i-refresh"/></svg>Lancer la veille maintenant</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============================================================ Soumission hors logiciel -->
+<dialog class="modal" id="soumission-dialog">
+  <form id="soumission-form">
+    <div class="modal-head">
+      <div>
+        <h2>Ajouter une soumission</h2>
+        <p>Pour une offre déposée sans passer par le registre : elle rejoint le tableau de suivi et l'historique.</p>
+      </div>
+      <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="field full"><label>Intitulé / objet du marché *</label><input required name="titre" placeholder="ex : Évaluation finale du programme X"></div>
+        <div class="field"><label>Autorité contractante *</label><input required name="emetteur" placeholder="ex : SONES"></div>
+        <div class="field"><label>Type d'avis</label>
+          <select name="type">
+            <option>Manifestation d'intérêt (AMI)</option><option>Appel d'offres ouvert (AAO)</option>
+            <option>Étude / Conseil stratégique</option><option>Financement / PPP</option>
+            <option>Exécution / Maîtrise d'œuvre</option><option>Assistance technique</option>
+            <option>Formation</option><option>Partenariat / Recherche</option>
+          </select>
+        </div>
+        <div class="field"><label>Origine</label><select name="origine"><option>État</option><option>Privé</option></select></div>
+        <div class="field"><label>Filiale A&amp;A</label>
+          <select name="filiale">
+            <option value="">À qualifier</option>
+            <option value="A&A Strategy">A&amp;A Strategy</option>
+            <option value="A&A Finance and Investment Advisory">A&amp;A Finance and Investment Advisory</option>
+            <option value="A&A Project Delivery">A&amp;A Project Delivery</option>
+            <option value="A&A Knowledge Institute">A&amp;A Knowledge Institute</option>
+          </select>
+        </div>
+        <div class="field"><label>Secteur</label><input name="secteur" value="Prestations intellectuelles"></div>
+        <div class="field"><label>Région</label><input name="region" value="National"></div>
+        <div class="field"><label>Zone</label><select name="zone"><option>Sénégal</option><option>UEMOA</option><option>CEDEAO</option><option>International</option></select></div>
+        <div class="field"><label>Montant indicatif</label><input name="montant" placeholder="ex : 45 M FCFA"></div>
+        <div class="field"><label>Source</label><input name="sourceLibre" placeholder="ex : Journal Le Soleil, site de l'organisme, courrier"></div>
+        <div class="field"><label>Date de publication</label><input type="date" name="datePublication"></div>
+        <div class="field"><label>Date limite de dépôt *</label><input required type="date" name="dateLimite"></div>
+        <div class="field"><label>Date de dépôt effective</label><input type="date" name="dateSoumission"></div>
+        <div class="field"><label>Date de dépouillement</label><input type="date" name="dateDepouillement"></div>
+        <div class="field"><label>Date de relance</label><input type="date" name="dateRelance"></div>
+        <div class="field"><label>Résultat</label>
+          <select name="resultat">
+            <option>En attente</option><option>Retenu (présélection)</option><option>Gagné</option>
+            <option>Perdu</option><option>Retrait / marché annulé</option>
+          </select>
+        </div>
+        <div class="field"><label>Assignée à</label><input name="assigne"></div>
+        <div class="field full"><label>Lien vers l'avis</label><input name="lienSource" type="url" placeholder="https://…"></div>
+        <div class="field full"><label>Commentaire de suivi</label><textarea name="commentaireSuivi" rows="2" placeholder="Notes obtenues, relances, prochaines étapes…"></textarea></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn primary"><svg class="ico"><use href="#i-check"/></svg>Enregistrer la soumission</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============================================================ Carnet de contacts -->
+<dialog class="modal narrow" id="contacts-dialog">
+  <div class="modal-shell">
+    <div class="modal-head">
+      <div><h2>Carnet de contacts</h2><p>Les personnes consultées pour les arbitrages GO / NO GO.</p></div>
+      <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="contacts-list" id="contacts-list"></div>
+      <form class="source-form" id="contact-form">
+        <h3 class="form-title"><svg class="ico"><use href="#i-plus"/></svg>Ajouter un contact</h3>
+        <div class="form-grid">
+          <div class="field"><label>Nom et prénom *</label><input required name="nom" placeholder="ex : Mafal Lo"></div>
+          <div class="field"><label>Adresse e-mail *</label><input required type="email" name="email" placeholder="prenom.nom@aastrategy.co"></div>
+          <div class="field"><label>Fonction</label><input name="fonction" placeholder="ex : Directeur des opérations"></div>
+          <div class="field"><label>Filiale</label>
+            <select name="filiale">
+              <option value="">Toutes</option>
+              <option>A&amp;A Strategy</option><option>A&amp;A Finance and Investment Advisory</option>
+              <option>A&amp;A Project Delivery</option><option>A&amp;A Knowledge Institute</option>
+            </select>
+          </div>
+          <div class="field full"><label class="check"><input type="checkbox" name="parDefaut" checked> Destinataire proposé par défaut pour les arbitrages</label></div>
+        </div>
+        <div class="form-actions"><button type="submit" class="btn primary"><svg class="ico"><use href="#i-plus"/></svg>Ajouter</button></div>
+      </form>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn" data-close>Fermer</button></div>
+  </div>
+</dialog>
+
+<!-- ============================================================ Demande d'arbitrage -->
+<dialog class="modal" id="ask-dialog">
+  <form id="ask-form">
+    <div class="modal-head">
+      <div><h2>Demander l'arbitrage GO / NO GO</h2><p id="ask-mode">Le message part directement depuis votre messagerie A&amp;A.</p></div>
+      <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>Destinataires</label><div class="recipients" id="ask-recipients"></div></div>
+      <div class="field full"><label>Objet</label><input name="objet" id="ask-objet"></div>
+      <div class="field full"><label>Message</label><textarea name="corps" id="ask-corps" rows="12"></textarea></div>
+      <p class="help">L'offre passera en statut « En arbitrage » et l'envoi sera consigné dans sa fiche. Les documents (TDR) ne sont pas joints automatiquement : le lien de l'offre est inclus dans le message.</p>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn primary" id="ask-envoyer"><svg class="ico"><use href="#i-send"/></svg>Envoyer la demande</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============================================== Relance d'une offre en attente -->
+<dialog class="modal" id="relance-dialog">
+  <form id="relance-form">
+    <div class="modal-head">
+      <div><h2>Relancer l'autorité contractante</h2><p id="relance-mode">Le message part directement depuis votre messagerie A&amp;A.</p></div>
+      <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="field full"><label>Destinataire(s)</label><input id="relance-a" placeholder="adresse@autorite.sn — plusieurs adresses séparées par une virgule" autocomplete="off" spellcheck="false"></div>
+      <div class="field full"><label>Objet</label><input id="relance-objet"></div>
+      <div class="field full"><label>Message</label><textarea id="relance-corps" rows="11"></textarea></div>
+      <p class="help">La relance est notée dans la fiche (date et commentaire de suivi) dès l'envoi.</p>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn primary" id="relance-envoyer"><svg class="ico"><use href="#i-send"/></svg>Envoyer la relance</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============================================================ Effacement définitif -->
+<dialog class="modal" id="purge-dialog">
+  <form id="purge-form">
+    <div class="modal-head">
+      <div><h2 id="purge-titre">Supprimer définitivement</h2><p>Cette opération ne se défait pas.</p></div>
+      <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="purge-alerte"><svg class="ico"><use href="#i-alert"/></svg><div id="purge-resume"></div></div>
+      <ul class="purge-liste" id="purge-liste"></ul>
+      <div class="purge-engagees" id="purge-engagees" hidden></div>
+      <p class="help">Sont effacés avec chaque offre : ses documents (TDR, DAO), ses notes, les avis de l'équipe et son historique.
+        La veille n'enregistrera plus ces avis s'ils réapparaissent sur une source.</p>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn danger-plein" id="purge-confirmer"><svg class="ico"><use href="#i-trash"/></svg><span>Supprimer définitivement</span></button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============================================================ Opportunité -->
+<dialog class="modal" id="opp-dialog">
+  <form id="opp-form">
+    <div class="modal-head">
+      <div><h2 id="opp-dialog-title">Nouvelle opportunité</h2><p>Structure cible, besoin repéré et angle d'approche.</p></div>
+      <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" name="id">
+      <div class="form-grid">
+        <div class="field"><label>Structure *</label><input required name="structure" placeholder="ex : ONAS"></div>
+        <div class="field"><label>Priorité</label><select name="priorite"><option>P1</option><option selected>P2</option><option>P3</option></select></div>
+        <div class="field full"><label>Besoin identifié</label><textarea name="besoin" rows="2"></textarea></div>
+        <div class="field full"><label>Offre A&amp;A correspondante</label><textarea name="offre_aa" rows="2"></textarea></div>
+        <div class="field full"><label>Angle d'approche</label><textarea name="angle" rows="2"></textarea></div>
+        <div class="field full"><label>Livrable type à proposer</label><input name="livrable"></div>
+        <div class="field"><label>Statut</label>
+          <select name="statut"><option>À contacter</option><option>Relation établie</option><option>Note envoyée</option><option>Rendez-vous obtenu</option><option>Converti en offre</option><option>Abandonné</option></select>
+        </div>
+        <div class="field"><label>Responsable</label><input name="responsable"></div>
+      </div>
+
+      <div class="scoring">
+        <h3 class="form-title"><svg class="ico"><use href="#i-target"/></svg>Notation (1 à 5)</h3>
+        <div class="score-grid">
+          <label><span>Fit offre / besoin <em data-poids-label="fit">25 %</em></span><input type="number" min="1" max="5" name="fit"></label>
+          <label><span>Relation / accès <em data-poids-label="relation">25 %</em></span><input type="number" min="1" max="5" name="relation"></label>
+          <label><span>Financement disponible <em data-poids-label="financement">20 %</em></span><input type="number" min="1" max="5" name="financement"></label>
+          <label><span>Urgence / fenêtre <em data-poids-label="urgence">15 %</em></span><input type="number" min="1" max="5" name="urgence"></label>
+          <label><span>Position concurrentielle <em data-poids-label="concurrence">15 %</em></span><input type="number" min="1" max="5" name="concurrence"></label>
+          <div class="score-out"><span>Score pondéré</span><b id="opp-score">—</b></div>
+        </div>
+        <p class="help">Le score est calculé sur les critères renseignés, selon les pondérations réglables dans l'onglet Prospection.</p>
+      </div>
+
+      <div class="scoring">
+        <div class="suggest-head">
+          <h3 class="form-title"><svg class="ico"><use href="#i-sparkle"/></svg>Ce que le logiciel propose</h3>
+          <div><span>Score suggéré </span><b id="opp-suggest-score">—</b>
+            <button type="button" class="btn small" id="opp-retenir-tout">Tout retenir</button></div>
+        </div>
+        <div class="opp-suggest" id="opp-suggest"></div>
+        <div class="opp-ecart" id="opp-ecart" hidden></div>
+        <div class="field full"><label>Motif de l'arbitrage</label>
+          <textarea name="motif_arbitrage" rows="2" placeholder="Pourquoi l'équipe retient une note différente de la suggestion…"></textarea></div>
+        <p class="help">Les suggestions se lisent dans les mots de la fiche : métier reconnu, bailleur cité, historique au registre,
+          angle formulé. Elles ne décident rien — elles donnent un point de départ et obligent à dire pourquoi on s'en écarte.</p>
+      </div>
+
+      <div class="field full"><label>Note interne</label><textarea name="note" rows="2"></textarea></div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" id="opp-delete" hidden><svg class="ico"><use href="#i-trash"/></svg>Supprimer</button>
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn primary"><svg class="ico"><use href="#i-check"/></svg>Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============================================================ Audit du sourcing -->
+<dialog class="modal wide" id="audit-dialog">
+  <div class="modal-shell">
+  <div class="modal-head">
+    <div>
+      <h2>Audit du sourcing</h2>
+      <p>Chaque offre est reprise une par une : est-ce vraiment une offre, son lien mène-t-il quelque part, et pointe-t-il bien vers le site annoncé ?</p>
+    </div>
+    <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+  </div>
+
+  <div class="modal-body">
+    <div class="audit-barre" id="audit-barre" hidden>
+      <div class="plan-bar"><span id="audit-progres" style="width:0%"></span></div>
+      <p class="muted-line" id="audit-etat">Vérification en cours…</p>
+    </div>
+
+    <div class="audit-resume" id="audit-resume" hidden></div>
+    <div class="audit-liste" id="audit-liste"></div>
+
+    <p class="help" id="audit-aide">L'audit interroge chaque site d'origine : comptez une à deux minutes pour l'ensemble du registre.
+      Rien n'est modifié tant que vous n'avez rien demandé, et tout ce qui part en corbeille en revient d'un clic.</p>
+  </div>
+
+  <div class="modal-foot">
+    <button class="btn" id="audit-lancer" type="button"><svg class="ico"><use href="#i-refresh"/></svg>Lancer l'audit</button>
+    <div class="spacer"></div>
+    <button class="btn danger" id="audit-nettoyer" type="button" hidden><svg class="ico"><use href="#i-trash"/></svg>Envoyer les fautives à la corbeille</button>
+    <button class="btn primary" data-close type="button">Fermer</button>
+  </div>
+  </div>
+</dialog>
+
+<!-- ============================================================ Plan de travail -->
+<dialog class="modal wide" id="plan-dialog">
+  <div class="modal-shell">
+  <div class="modal-head">
+    <div>
+      <h2 id="plan-titre">Plan de travail</h2>
+      <p class="plan-sous" id="plan-sous"></p>
+    </div>
+    <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+  </div>
+
+  <div class="modal-body">
+    <div class="plan-entete">
+      <div class="plan-bar" id="plan-bar"><span style="width:0%"></span></div>
+    </div>
+
+    <div class="plan-liste" id="plan-liste"></div>
+
+    <div class="state" id="plan-vide" hidden style="padding:18px 0">
+      <p class="state-title">Aucune étape</p>
+      <p>Générez le plan type en huit étapes — les dates sont calculées à rebours de la date limite — ou saisissez vos propres étapes.</p>
+    </div>
+
+    <form id="plan-ajout" class="plan-ajout">
+      <input name="libelle" placeholder="Ajouter une étape…" maxlength="120">
+      <input name="responsable" placeholder="Responsable">
+      <input name="echeance" type="date">
+      <button class="btn" type="submit"><svg class="ico"><use href="#i-plus"/></svg>Ajouter</button>
+    </form>
+  </div>
+
+  <div class="modal-foot">
+    <button class="btn" id="plan-generer" type="button"><svg class="ico"><use href="#i-list"/></svg>Générer le plan type</button>
+    <div class="spacer"></div>
+    <button class="btn" id="plan-fiche" type="button"><svg class="ico"><use href="#i-file"/></svg>Ouvrir la fiche</button>
+    <button class="btn primary" data-close type="button">Terminé</button>
+  </div>
+  </div>
+</dialog>
+
+<!-- ============================================================ Connexion -->
+<dialog class="modal narrow login" id="login-dialog">
+  <form id="login-form">
+    <div class="login-head">
+      <img class="login-logo" src="assets/logo-aa-group.svg" alt="A&amp;A Group">
+      <h2>Registre des Offres</h2>
+      <p>Veille et suivi des opportunités — accès réservé à l'équipe.</p>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="login-nom">Prénom et nom</label>
+        <input id="login-nom" name="whoami" required placeholder="ex : Aliou Niass" autocomplete="name">
+        <p class="help">Signe vos notes, vos avis d'arbitrage et les offres que vous prenez en charge.</p>
+      </div>
+      <div class="field">
+        <label for="login-code">Code d'équipe</label>
+        <input id="login-code" name="code" required type="password" placeholder="Code communiqué par l'administrateur" autocomplete="current-password">
+        <p class="help">Saisi une seule fois : Windows le conserve chiffré sur ce poste.</p>
+      </div>
+      <p class="login-error" id="login-error" hidden></p>
+    </div>
+    <div class="modal-foot">
+      <button type="submit" class="btn primary" id="login-submit"><svg class="ico"><use href="#i-check"/></svg>Se connecter</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============================================================ Paramètres -->
+<dialog class="modal" id="profil-dialog">
+  <form id="profil-form">
+    <div class="modal-head">
+      <div>
+        <h2>Profil d'A&amp;A</h2>
+        <p>Partagé avec toute l'équipe. Sert à juger l'éligibilité de chaque offre.</p>
+      </div>
+      <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p class="help profil-droits" id="profil-droits"></p>
+      <div class="settings-section">
+        <h3>Capacité financière et ancienneté</h3>
+        <div class="field"><label>Chiffre d'affaires du dernier exercice (FCFA)</label><input name="chiffre_affaires_fcfa" inputmode="numeric" placeholder="ex : 150 000 000"></div>
+        <div class="field"><label>Année de création</label><input name="annee_creation" inputmode="numeric" placeholder="ex : 2015"></div>
+        <div class="field"><label>Nombre de références similaires justifiables (attestations de bonne fin)</label><input name="references_nombre" inputmode="numeric"></div>
+        <p class="help">Laissez vide ce que vous ne savez pas : l'analyse répondra « à vérifier » plutôt que de supposer.</p>
+      </div>
+      <div class="settings-section">
+        <h3>Certifications et agréments</h3>
+        <div class="field"><label>Certifications détenues</label><input name="certifications" placeholder="séparées par des virgules — ex : ISO 9001"></div>
+        <label class="check"><input type="checkbox" name="aucune_certification"> A&amp;A ne détient aucune certification</label>
+        <div class="field"><label>Agréments</label><input name="agrements" placeholder="séparés par des virgules"></div>
+        <label class="check"><input type="checkbox" name="aucun_agrement"> A&amp;A ne détient aucun agrément</label>
+        <p class="help">Un champ vide veut dire « non renseigné » ; la case cochée veut dire « aucun ». La différence compte : seule la seconde permet de conclure.</p>
+      </div>
+      <div class="settings-section">
+        <h3>Zones et métiers</h3>
+        <div class="field"><label>Zones d'intervention</label><input name="localisations" placeholder="séparées par des virgules — ex : Sénégal, Dakar, Afrique de l'Ouest"></div>
+        <div class="field"><label>Domaines par filiale — une filiale par ligne, « Nom : domaine, domaine »</label><textarea name="filiales" rows="7"></textarea></div>
+      </div>
+      <p class="help" id="profil-maj"></p>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-close>Fermer</button>
+      <button type="submit" class="btn primary" id="profil-enregistrer"><svg class="ico"><use href="#i-check"/></svg>Enregistrer le profil</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="modal narrow" id="settings-dialog">
+  <form id="settings-form">
+    <div class="modal-head">
+      <div>
+        <h2>Paramètres</h2>
+        <p>Enregistrés uniquement sur ce poste.</p>
+      </div>
+      <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-section" id="reglages-maj">
+        <h3>Mise à jour du logiciel</h3>
+        <div class="maj-carte" id="maj-carte" data-etat="inactif">
+          <div class="maj-tete">
+            <span class="maj-icone"><svg class="ico"><use href="#i-refresh"/></svg></span>
+            <div class="maj-texte">
+              <div class="maj-version">Version installée : <b id="maj-version">—</b></div>
+              <div class="maj-message" id="maj-message">—</div>
+            </div>
+          </div>
+          <div class="maj-barre" id="maj-barre" hidden><span id="maj-barre-plein"></span></div>
+          <div class="ia-ligne">
+            <button type="button" class="btn primary" id="maj-verifier"><svg class="ico"><use href="#i-refresh"/></svg><span>Rechercher une mise à jour</span></button>
+            <button type="button" class="btn go" id="maj-installer" hidden><svg class="ico"><use href="#i-check"/></svg>Redémarrer et installer</button>
+          </div>
+          <p class="help" id="maj-derniere"></p>
+        </div>
+        <p class="help">Le logiciel vérifie seul à l'ouverture, puis toutes les six heures. Une nouvelle version se télécharge en arrière-plan, sans interrompre le travail ; elle s'installe quand vous cliquez « Redémarrer et installer », ou à la prochaine fermeture. Vos réglages, votre code d'équipe et les données du registre ne sont pas touchés.</p>
+      </div>
+      <div class="settings-section">
+        <h3>Profil d'A&amp;A</h3>
+        <p class="help">Chiffre d'affaires, certifications, ancienneté : ce qui sert à juger l'éligibilité des offres. Partagé avec toute l'équipe, contrairement aux réglages ci-dessous.</p>
+        <button type="button" class="btn small" id="ouvrir-profil-aa">Ouvrir le profil d'A&amp;A</button>
+      </div>
+      <div class="settings-section">
+        <h3>Mon profil</h3>
+        <div class="field"><label>Prénom et nom</label><input name="whoami" placeholder="ex : Aliou Niass" autocomplete="name"></div>
+        <p class="help">Utilisé pour signer vos notes et vous assigner des offres.</p>
+        <label class="check"><input type="checkbox" name="veilleAuDemarrage"> Lancer la veille automatique à l'ouverture de l'application</label>
+        <p class="help">Décochez pour un démarrage plus rapide : la veille se lance alors uniquement avec le bouton « Actualiser la veille ».</p>
+      </div>
+      <div class="settings-section">
+        <h3>Apparence des cartes d'offres</h3>
+        <p class="help">Trois partis pris pour la liste des offres. Le choix s'applique aussitôt, ne touche à aucune donnée, et se change autant de fois qu'il le faut.</p>
+        <div class="styles-cartes" id="styles-cartes">
+          <button type="button" class="style-choix" data-style="ardoise">
+            <span class="apercu"></span>
+            <span class="nom">Ardoise</span>
+            <span class="quoi">Sombre et lumineux, dans la continuité du rail</span>
+          </button>
+          <button type="button" class="style-choix" data-style="ligne">
+            <span class="apercu"></span>
+            <span class="nom">Ligne claire</span>
+            <span class="quoi">Dense et contrasté, pour lire toute la journée</span>
+          </button>
+          <button type="button" class="style-choix" data-style="verre">
+            <span class="apercu"></span>
+            <span class="nom">Verre</span>
+            <span class="quoi">Profondeur et matière, très démonstratif</span>
+          </button>
+        </div>
+      </div>
+      <div class="settings-section">
+        <h3>Assistant — intelligence artificielle</h3>
+        <p class="help">Sans clé, l'assistant répond avec son moteur local : il compte, cherche, surveille les échéances et explique le logiciel, sans rien envoyer à l'extérieur. Avec une clé OpenAI, il comprend les demandes complexes et peut agir dans le logiciel — chaque écriture restant soumise à votre confirmation.</p>
+        <div class="ia-ligne">
+          <input type="password" id="ia-cle" placeholder="sk-…" autocomplete="off" spellcheck="false" aria-label="Clé OpenAI">
+          <button type="button" class="btn primary" id="ia-tester"><svg class="ico"><use href="#i-check"/></svg>Vérifier et enregistrer</button>
+        </div>
+        <select id="ia-modele" hidden aria-label="Modèle"></select>
+        <p class="ia-etat" id="ia-etat">—</p>
+        <button type="button" class="btn small" id="ia-effacer" hidden><svg class="ico"><use href="#i-trash"/></svg>Effacer la clé de ce poste</button>
+        <p class="help">La clé reste sur ce poste, chiffrée par Windows, et n'est jamais écrite en clair ni envoyée au registre. Elle vous est propre : la consommation est facturée sur votre compte OpenAI. Quand l'IA est active, vos questions et les extraits du registre nécessaires à la réponse sont transmis à OpenAI.</p>
+      </div>
+      <div class="settings-section">
+        <h3>Messagerie — envoi des demandes d'arbitrage</h3>
+        <p class="help">Sans ces réglages, le logiciel ne peut qu'ouvrir un brouillon dans votre messagerie — et rien ne part si Windows n'en a pas. Renseignés, les demandes GO / NO GO sont expédiées directement, depuis votre adresse, et le destinataire les reçoit dans sa boîte.</p>
+        <div class="grid-2">
+          <div class="field"><label>Serveur sortant (SMTP)</label><input id="smtp-serveur" placeholder="ex : smtp.office365.com" autocomplete="off" spellcheck="false"></div>
+          <div class="field"><label>Port</label><input id="smtp-port" type="number" placeholder="587"></div>
+          <div class="field"><label>Chiffrement</label>
+            <select id="smtp-securite">
+              <option value="starttls">STARTTLS (port 587)</option>
+              <option value="ssl">SSL/TLS (port 465)</option>
+              <option value="aucune">Aucun (déconseillé)</option>
+            </select>
+          </div>
+          <div class="field"><label>Identifiant</label><input id="smtp-utilisateur" placeholder="vous@aastrategy.co" autocomplete="off" spellcheck="false"></div>
+          <div class="field"><label>Mot de passe d'application</label><input id="smtp-mdp" type="password" placeholder="•••••••••••" autocomplete="off"></div>
+          <div class="field"><label>Nom affiché</label><input id="smtp-nom" placeholder="ex : Aliou Niasse"></div>
+        </div>
+        <div class="ia-ligne">
+          <button type="button" class="btn primary" id="smtp-tester"><svg class="ico"><use href="#i-check"/></svg>Vérifier et enregistrer</button>
+          <button type="button" class="btn" id="smtp-effacer" hidden><svg class="ico"><use href="#i-trash"/></svg>Effacer</button>
+        </div>
+        <p class="ia-etat" id="smtp-etat">—</p>
+        <p class="help">N'utilisez pas votre mot de passe de session : créez un « mot de passe d'application » dans votre compte de messagerie. Il ne sert qu'à ce logiciel et se révoque d'un clic. Il reste sur ce poste, chiffré par Windows, et n'est jamais envoyé au registre.</p>
+      </div>
+      <div class="settings-section" id="reglages-alertes">
+        <h3>Alertes e-mail — Development AID</h3>
+        <p class="help">Development AID protège sa liste par une vérification anti-robots : la veille ne la lit pas directement. Votre abonnement prévoit des <b>alertes par e-mail</b> — c'est le canal prévu par le site. Renseignée ici, la boîte qui les reçoit est relevée à chaque veille, et chaque offre d'une alerte passe par le mapping comme les autres sources.</p>
+        <ol class="help etapes-alertes">
+          <li>Dans votre compte Development AID : créez une alerte « Tenders » filtrée sur le Sénégal (et la sous-région si besoin), envoyée par e-mail.</li>
+          <li>Dans votre messagerie : activez l'accès IMAP et créez un « mot de passe d'application ». Si c'est la même adresse que l'envoi ci-dessus, celui de l'envoi est réutilisé.</li>
+          <li>Ici : « Vérifier et enregistrer ». La relève ne lit que les messages de l'expéditeur indiqué, des derniers jours, sans les marquer comme lus ni rien modifier dans la boîte.</li>
+        </ol>
+        <div class="grid-2">
+          <div class="field"><label>Serveur de réception (IMAP)</label><input id="alertes-serveur" placeholder="ex : imap.gmail.com" autocomplete="off" spellcheck="false"></div>
+          <div class="field"><label>Port (SSL/TLS)</label><input id="alertes-port" type="number" placeholder="993"></div>
+          <div class="field"><label>Adresse qui reçoit les alertes</label><input id="alertes-utilisateur" placeholder="vous@aastrategy.co" autocomplete="off" spellcheck="false"></div>
+          <div class="field"><label>Mot de passe d'application</label><input id="alertes-mdp" type="password" placeholder="•••••••••••" autocomplete="off"></div>
+          <div class="field"><label>Expéditeur des alertes contient</label><input id="alertes-expediteur" placeholder="developmentaid" autocomplete="off" spellcheck="false"></div>
+          <div class="field"><label>Alertes des derniers… (jours)</label><input id="alertes-jours" type="number" min="1" max="60" placeholder="10"></div>
+          <div class="field"><label>Dossier de la boîte</label><input id="alertes-dossier" placeholder="INBOX" autocomplete="off" spellcheck="false"></div>
+          <div class="field"><label class="check"><input type="checkbox" id="alertes-actif" checked> Relever pendant la veille</label></div>
+        </div>
+        <div class="ia-ligne">
+          <button type="button" class="btn primary" id="alertes-tester"><svg class="ico"><use href="#i-check"/></svg>Vérifier et enregistrer</button>
+          <button type="button" class="btn" id="alertes-relever" hidden><svg class="ico"><use href="#i-refresh"/></svg>Relever maintenant</button>
+          <button type="button" class="btn" id="alertes-effacer" hidden><svg class="ico"><use href="#i-trash"/></svg>Effacer</button>
+        </div>
+        <p class="ia-etat" id="alertes-etat">—</p>
+        <p class="help" id="alertes-derniere"></p>
+        <p class="help">Pour parcourir le site vous-même et importer une page ou joindre des TDR : bouton « Development AID · Sénégal » de la Veille. Le mot de passe reste sur ce poste, chiffré par Windows, et n'est jamais envoyé au registre. Microsoft 365 n'accepte plus ce type de connexion : utilisez une adresse Gmail, Zoho ou de votre hébergeur.</p>
+      </div>
+      <div class="settings-section">
+        <h3>Accès au registre</h3>
+        <div class="acces-row">
+          <span class="acces-profil" id="acces-profil">—</span>
+          <button type="button" class="btn small" id="logout-btn"><svg class="ico"><use href="#i-user"/></svg>Se déconnecter de ce poste</button>
+        </div>
+        <p class="help">La déconnexion efface le code d'équipe conservé sur ce poste ; les données du registre ne sont pas touchées.</p>
+        <details class="avance">
+          <summary>Réglages avancés</summary>
+          <div class="field"><label>Adresse du registre</label><input required name="supabaseUrl" placeholder="https://xxxxxxxx.supabase.co"></div>
+          <div class="field"><label>Clé publiable</label><input required name="supabaseAnonKey" placeholder="sb_publishable_…"></div>
+          <p class="help">Livrées avec l'application : à ne modifier que sur demande de l'administrateur. N'utilisez jamais la clé « service_role » / « secret ».</p>
+        </details>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn primary"><svg class="ico"><use href="#i-check"/></svg>Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+
+<!-- ===================================================================== -->
+<!-- Assistant du registre                                                  -->
+<!--                                                                        -->
+<!-- Le moteur (assistant.js) ne sort pas du poste : il lit les offres déjà  -->
+<!-- chargées dans la page et calcule ses réponses sur place.                -->
+<!-- ===================================================================== -->
+<button type="button" class="chat-bubble" id="chat-bubble"
+        aria-label="Ouvrir l'assistant du registre" aria-expanded="false" aria-controls="chat-panel">
+  <svg class="ico ico-chat"><use href="#i-chat"/></svg>
+  <svg class="ico ico-close"><use href="#i-x"/></svg>
+</button>
+
+<section class="chat-panel" id="chat-panel" hidden aria-label="Assistant du registre">
+  <header class="chat-head">
+    <span class="chat-avatar"><svg class="ico"><use href="#i-sparkle"/></svg></span>
+    <div class="chat-ident">
+      <strong>Assistant du registre</strong>
+      <span id="chat-sous">Hors ligne — vos données ne quittent pas le poste</span>
+    </div>
+    <button type="button" class="icon-btn chat-x" id="chat-reset" aria-label="Nouvelle discussion" title="Nouvelle discussion">
+      <svg class="ico"><use href="#i-refresh"/></svg>
+    </button>
+    <button type="button" class="icon-btn chat-x" id="chat-close" aria-label="Fermer l'assistant">
+      <svg class="ico"><use href="#i-x"/></svg>
+    </button>
+  </header>
+
+  <div class="chat-log" id="chat-log" role="log" aria-live="polite"></div>
+
+  <div class="chat-pieces" id="chat-pieces" hidden></div>
+
+  <div class="chat-tips" id="chat-tips"></div>
+
+  <form class="chat-form" id="chat-form" autocomplete="off">
+    <button type="button" class="chat-joindre" id="chat-joindre"
+            aria-label="Joindre un document" title="Joindre un document (PDF, Word, Excel, image…)">
+      <svg class="ico"><use href="#i-plus-cercle"/></svg>
+    </button>
+    <input id="chat-input" name="q" maxlength="1000"
+           placeholder="Posez votre question…" aria-label="Votre question">
+    <button type="submit" class="chat-send" id="chat-send" aria-label="Envoyer la question">
+      <svg class="ico"><use href="#i-send"/></svg>
+    </button>
+  </form>
+</section>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<!-- Le noyau d'abord : les trois autres s'en servent dès leur première ligne. -->
+<script src="pont-web.js"></script>
+<script src="noyau.js"></script>
+<script src="metier.js"></script>
+<!-- Références de missions A&A : pertinence des offres et missions comparables. -->
+<script src="references.js"></script>
+<script src="eligibilite.js"></script>
+<script src="dao.js"></script>
+<script src="assistant.js"></script>
+<script src="ia.js"></script>
+<script src="app.js"></script>
+<script src="coquille-mobile.js"></script>
+</body>
+</html>
