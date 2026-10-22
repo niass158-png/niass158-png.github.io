@@ -9,7 +9,7 @@
      l'appliquer.
    La liste et la version sont écrites par web/construire-web.js.
    ========================================================================== */
-const VERSION = "1.17.0-5fe2e711f3";
+const VERSION = "1.17.0-0f73b9219e";
 const FICHIERS = [
  "./",
  "app.js",
@@ -41,7 +41,11 @@ const FICHIERS = [
 const CACHE = "aa-registre-" + VERSION;
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FICHIERS.map((f) => new Request(f, { cache: "reload" })))));
+  // Une fois tout téléchargé, la nouvelle version prend la main sans attendre
+  // que l'application soit fermée : sur iPhone, elle ne l'est presque jamais.
+  e.waitUntil(caches.open(CACHE)
+    .then((c) => c.addAll(FICHIERS.map((f) => new Request(f, { cache: "reload" }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {

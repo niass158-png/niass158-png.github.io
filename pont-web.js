@@ -29,7 +29,7 @@
   "use strict";
 
   // Remplacés par web/construire-web.js au moment d'assembler le site.
-  const VERSION = "1.17.0";
+  const VERSION = "1.17.0 du 22/10/2026 19h31";
   const CONFIG = {"supabaseUrl":"https://pdehcpcwjqihmvzrduon.supabase.co","supabaseAnonKey":"sb_publishable_P39rSCAXlyh2Y6m3aFF8HA_bAy5_QQP","comptes":{"contributeur":"equipe@aastrategy.co","administrateur":"admin@aastrategy.co"}};
 
   document.documentElement.dataset.plateforme = "web";

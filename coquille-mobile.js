@@ -204,39 +204,62 @@
   window.addEventListener("appinstalled", () => { invite = null; majSection(); });
 
   let enregistrement = null;
+  let recharge = false;
+
+  /** Pas de rechargement au milieu d'une saisie : on attend qu'aucune fenêtre ne soit ouverte. */
+  function quandLibre(fn) {
+    const occupe = () => {
+      if (document.querySelector("dialog[open]:not(#login-dialog)")) return true;   // fiche, fenêtre ouverte
+      const el = document.activeElement;
+      if (!el || !/INPUT|TEXTAREA/.test(el.tagName) || el.closest("#login-dialog") || el.id === "search") return false;
+      return !!el.value;                                                          // saisie en cours
+    };
+    if (!occupe()) { fn(); return; }
+    const t = setInterval(() => { if (!occupe()) { clearInterval(t); fn(); } }, 3000);
+  }
+  /** Fait passer la version téléchargée devant l'ancienne (la page se recharge alors). */
+  function appliqueMaj(travailleur) {
+    if (!travailleur) return;
+    quandLibre(() => {
+      if (web.annonce) web.annonce("Mise à jour du registre…", "info", 4000);
+      travailleur.postMessage("activer");
+    });
+  }
+  function suisInstallation(travailleur) {
+    if (!travailleur) return;
+    if (travailleur.state === "installed") { appliqueMaj(travailleur); return; }
+    travailleur.addEventListener("statechange", () => {
+      if (travailleur.state === "installed" && navigator.serviceWorker.controller) appliqueMaj(travailleur);
+    });
+  }
+
   if ("serviceWorker" in navigator && window.isSecureContext) {
     navigator.serviceWorker.register("sw.js").then((r) => {
       enregistrement = r;
-      // Nouvelle version téléchargée en arrière-plan : on la propose.
-      r.addEventListener("updatefound", () => {
-        const nouveau = r.installing;
-        if (!nouveau) return;
-        nouveau.addEventListener("statechange", () => {
-          if (nouveau.state === "installed" && navigator.serviceWorker.controller) proposeRechargement();
-        });
+      // Une version déjà téléchargée qui attendait : on l'applique.
+      if (r.waiting && navigator.serviceWorker.controller) appliqueMaj(r.waiting);
+      r.addEventListener("updatefound", () => suisInstallation(r.installing));
+      // L'iPhone garde l'application ouverte en arrière-plan : on vérifie à
+      // chaque retour, et toutes les heures.
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") r.update().catch(() => {});
       });
-      setInterval(() => r.update().catch(() => {}), 6 * 3600 * 1000);
+      setInterval(() => r.update().catch(() => {}), 3600 * 1000);
     }).catch(() => {});
-    let recharge = false;
-    navigator.serviceWorker.addEventListener("controllerchange", () => { if (!recharge) { recharge = true; location.reload(); } });
-  }
-  function proposeRechargement() {
-    if (web.annonce) web.annonce("Nouvelle version du registre disponible : touchez ici pour l'appliquer.", "success", 15000);
-    const t = document.querySelector("#toasts .toast:last-child");
-    if (t) t.addEventListener("click", appliqueMaj, { once: true });
-  }
-  function appliqueMaj() {
-    if (enregistrement && enregistrement.waiting) enregistrement.waiting.postMessage("activer");
-    else location.reload();
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (recharge) return;
+      recharge = true;
+      quandLibre(() => location.reload());
+    });
   }
 
   const corps = $("#settings-dialog .modal-body");
   const section = document.createElement("div");
   section.className = "settings-section web-appli";
   section.innerHTML = '<h3>Application mobile</h3>'
-    + '<p class="help">Version web <span class="web-version">' + (web.VERSION || "") + '</span> — elle se met à jour toute seule. '
-    + 'La veille automatique, les fenêtres de consultation et Tender AI restent sur le logiciel installé sur PC ; '
-    + 'le téléphone voit tout ce qu\'ils ajoutent au registre.</p>'
+    + '<p class="help">Version <span class="web-version">' + (web.VERSION || "") + '</span> — elle se met à jour toute seule. '
+    + 'La veille, la messagerie et les alertes passent par le moteur en ligne, même PC éteints ; '
+    + 'les fenêtres de consultation et Tender AI restent sur le logiciel installé sur PC.</p>'
     + '<p><span class="web-etat" id="web-etat"></span></p>'
     + '<div class="web-actions">'
     + '<button type="button" class="btn primary small" id="web-installer" hidden>' + ic("download") + 'Installer sur l\'écran d\'accueil</button>'
@@ -271,10 +294,13 @@
     try {
       if (enregistrement) {
         await enregistrement.update();
-        if (enregistrement.waiting || enregistrement.installing) { proposeRechargement(); }
-        else if (web.annonce) web.annonce("Le registre est à jour (version " + (web.VERSION || "") + ").", "success");
-      } else if (web.annonce) {
-        web.annonce("Mises à jour automatiques indisponibles dans ce navigateur : rechargez la page.", "info");
+        const nouveau = enregistrement.waiting || enregistrement.installing;
+        if (nouveau) {
+          if (web.annonce) web.annonce("Nouvelle version trouvée : elle s'installe, l'application va se recharger.", "success", 8000);
+          if (nouveau === enregistrement.waiting) appliqueMaj(nouveau); else suisInstallation(nouveau);
+        } else if (web.annonce) web.annonce("Le registre est à jour (version " + (web.VERSION || "") + ").", "success");
+      } else {
+        location.reload();
       }
     } catch (_) {
       if (web.annonce) web.annonce("Vérification impossible : connexion Internet ?", "error");
