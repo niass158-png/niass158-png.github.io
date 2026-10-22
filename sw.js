@@ -9,7 +9,7 @@
      l'appliquer.
    La liste et la version sont écrites par web/construire-web.js.
    ========================================================================== */
-const VERSION = "1.17.0-c851e16c98";
+const VERSION = "1.17.0-2f777ebf72";
 const FICHIERS = [
  "./",
  "app.js",
@@ -64,9 +64,14 @@ self.addEventListener("fetch", (e) => {
     const cache = await caches.open(CACHE);
     // Les pages viennent de l'appareil, comme le reste : page et scripts
     // sont toujours de la même version. Le réseau ne sert qu'en secours.
+    // Seule la page de l'application est servie ainsi ; les autres pages du
+    // site (installer.html…) et les fichiers téléchargés passent au réseau.
     if (req.mode === "navigate") {
-      const page = (await cache.match("./")) || (await cache.match("index.html"));
-      if (page) return page;
+      const racine = new URL("./", self.registration.scope).pathname;
+      if (url.pathname === racine || url.pathname === racine + "index.html") {
+        const page = (await cache.match("./")) || (await cache.match("index.html"));
+        if (page) return page;
+      }
       return fetch(req);
     }
     const garde = await cache.match(req, { ignoreSearch: true });

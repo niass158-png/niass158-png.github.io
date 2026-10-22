@@ -419,6 +419,85 @@
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
   }
 
+  // ====================================================== veille en ligne
+  // Les sites sources refusent d'être lus depuis une page web : c'est le
+  // moteur en ligne (Supabase) qui les lit, comme le ferait le PC.
+  const veille = { enCours: false, ecoute: { debut: [], progres: [], fin: [] } };
+  const CLE_VEILLE = "aa.web.veille.derniere";
+  const emet = (liste, d) => liste.forEach(cb => { try { cb(d); } catch (_) { /* écouteur fautif */ } });
+  function derniereVeille() { try { return JSON.parse(localStorage.getItem(CLE_VEILLE) || "null"); } catch (_) { return null; } }
+
+  /** Jeton de la session du registre, gardé par la bibliothèque Supabase. */
+  function jetonSession() {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (/^sb-.*-auth-token$/.test(k)) {
+          const v = JSON.parse(localStorage.getItem(k) || "null");
+          const s = v && (v.access_token ? v : v.currentSession);
+          if (s && s.access_token) return s.access_token;
+        }
+      }
+    } catch (_) { /* rien */ }
+    return null;
+  }
+
+  async function appelVeille(corps, delaiMs) {
+    const r = reglages();
+    const jeton = jetonSession();
+    if (!jeton) throw new Error("Connectez-vous au registre pour lancer la veille.");
+    const ctrl = new AbortController();
+    const minuteur = setTimeout(() => ctrl.abort(), delaiMs || 160000);
+    try {
+      const res = await fetch(String(r.supabaseUrl).replace(/\/+$/, "") + "/functions/v1/veille-en-ligne", {
+        method: "POST", signal: ctrl.signal,
+        headers: { "Content-Type": "application/json", apikey: r.supabaseAnonKey, Authorization: "Bearer " + jeton },
+        body: JSON.stringify(corps)
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || !data.ok) throw new Error((data && data.message) || ("HTTP " + res.status));
+      return data;
+    } catch (e) {
+      if (e && e.name === "AbortError") throw new Error("délai dépassé");
+      throw e;
+    } finally { clearTimeout(minuteur); }
+  }
+
+  async function veilleEnLigne() {
+    if (veille.enCours) return { ok: false, message: "Une veille est déjà en cours." };
+    veille.enCours = true;
+    const startedAt = new Date().toISOString();
+    emet(veille.ecoute.debut, { startedAt });
+    let resultat;
+    try {
+      const { sources } = await appelVeille({ action: "liste" }, 30000);
+      const aLire = (sources || []).filter(s => s.enLigne);
+      const summary = [];
+      let i = 0;
+      // Trois sources à la fois : assez pour aller vite, sans saturer le moteur.
+      const ouvrier = async () => {
+        while (i < aLire.length) {
+          const s = aLire[i++];
+          emet(veille.ecoute.progres, { source: s.id, label: s.nom, status: "running" });
+          let b;
+          try { b = (await appelVeille({ action: "source", id: s.id })).bilan; }
+          catch (e) { b = { source: s.id, label: s.nom, status: "error", itemsNew: 0, itemsFound: 0, error: "Moteur en ligne : " + (e && e.message ? e.message : e) }; }
+          b.label = b.label || s.nom;
+          summary.push(b);
+          emet(veille.ecoute.progres, b);
+        }
+      };
+      await Promise.all([ouvrier(), ouvrier(), ouvrier()]);
+      resultat = { ok: true, summary, startedAt, finishedAt: new Date().toISOString(), enLigne: true };
+    } catch (e) {
+      resultat = { ok: false, error: e && e.message ? e.message : String(e), summary: [], startedAt, finishedAt: new Date().toISOString() };
+    }
+    veille.enCours = false;
+    try { localStorage.setItem(CLE_VEILLE, JSON.stringify(resultat)); } catch (_) { /* rien */ }
+    emet(veille.ecoute.fin, resultat);
+    return resultat;
+  }
+
   // ====================================================== réglages
   function reglages() {
     const r = lisReglages();
@@ -470,12 +549,13 @@
       return { ok: true };
     },
 
-    // Veille : le téléphone voit les offres collectées par les PC, il ne
-    // collecte pas lui-même (les sites sources refusent les navigateurs tiers).
-    runCollectorNow: async () => { throw new Error("La veille se lance depuis le logiciel installé sur PC."); },
-    onCollectorStart: rien,
-    onCollectorProgress: rien,
-    onCollectorDone: rien,
+    // Veille : lancée par le moteur en ligne (fonction Supabase « veille-en-ligne »,
+    // duplicata du collecteur du PC), source par source.
+    runCollectorNow: () => veilleEnLigne(),
+    getCollectorStatus: async () => ({ running: veille.enCours, last: derniereVeille() }),
+    onCollectorStart: (cb) => veille.ecoute.debut.push(cb),
+    onCollectorProgress: (cb) => veille.ecoute.progres.push(cb),
+    onCollectorDone: (cb) => veille.ecoute.fin.push(cb),
 
     saveXlsx: async (filename, base64) =>
       telecharge(deBase64(base64), filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
