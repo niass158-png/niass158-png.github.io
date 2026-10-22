@@ -37,6 +37,26 @@
   if (aideLogout && aideLogout.nextElementSibling && aideLogout.nextElementSibling.classList.contains("help")) {
     aideLogout.nextElementSibling.textContent = "Ferme la session du registre sur cet appareil ; les données du registre ne sont pas touchées.";
   }
+  // Messagerie et alertes : en ligne, un seul réglage pour toute l'équipe.
+  const NOTE_EN_LIGNE = "Version mobile : ce réglage est partagé par toute l'équipe et fait par l'administrateur. "
+    + "Le mot de passe d'application est gardé chiffré dans le coffre du registre (Supabase), jamais renvoyé à un écran. "
+    + "Le serveur en ligne se connecte en SSL/TLS (port 465 pour l'envoi, 993 pour la réception).";
+  ["#smtp-serveur", "#alertes-serveur"].forEach(sel => {
+    const section = $(sel) && $(sel).closest(".settings-section");
+    if (!section) return;
+    const note = document.createElement("p");
+    note.className = "help web-note-en-ligne";
+    note.textContent = NOTE_EN_LIGNE;
+    const titre = section.querySelector("h3");
+    if (titre) titre.after(note);
+  });
+  const secu = $("#smtp-securite");
+  if (secu && secu.querySelector('option[value="ssl"]')) {
+    const forceSsl = () => { if (secu.value !== "ssl") { secu.value = "ssl"; $("#smtp-port").value = 465; } };
+    secu.addEventListener("change", forceSsl);
+    ["#settings-btn", "#user-chip"].forEach(sel => { const b = $(sel); if (b) b.addEventListener("click", () => setTimeout(forceSsl, 400)); });
+  }
+
   const aideCode = $("#login-code") && $("#login-code").parentElement.querySelector(".help");
   if (aideCode) aideCode.textContent = "Le code n'est pas conservé : l'appareil garde seulement la session ouverte, jusqu'à « Se déconnecter ».";
 

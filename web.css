@@ -8,13 +8,10 @@
 
 /* ----------------------------------------------- 1. Fonctions propres au PC */
 html[data-plateforme="web"] #reglages-maj,
-html[data-plateforme="web"] #reglages-alertes,
-html[data-plateforme="web"] .settings-section:has(#smtp-serveur),
 html[data-plateforme="web"] label.check:has(input[name="veilleAuDemarrage"]),
 html[data-plateforme="web"] label.check:has(input[name="veilleAuDemarrage"]) + .help,
 html[data-plateforme="web"] #veille-manuels,
 html[data-plateforme="web"] #rail-maj,
-html[data-plateforme="web"] #dlg-fetch-docs,
 html[data-plateforme="web"] [data-tenderai],
 html[data-plateforme="web"] .global-search kbd{ display:none !important; }
 

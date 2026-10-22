@@ -442,7 +442,7 @@
     return null;
   }
 
-  async function appelVeille(corps, delaiMs) {
+  async function appelMoteur(corps, delaiMs) {
     const r = reglages();
     const jeton = jetonSession();
     if (!jeton) throw new Error("Connectez-vous au registre pour lancer la veille.");
@@ -463,6 +463,57 @@
     } finally { clearTimeout(minuteur); }
   }
 
+  /** Même forme de réponse que le PC ; une erreur devient { ok:false, message }. */
+  async function moteur(action, methode, charge) {
+    try {
+      const d = await appelMoteur({ action, methode, charge: charge || {} }, 150000);
+      return d.resultat || {};
+    } catch (e) {
+      const m = e && e.message ? e.message : String(e);
+      return { ok: false, message: m, erreur: m };
+    }
+  }
+
+  /** Le serveur en ligne n'a pas le droit d'utiliser les ports 25 et 587. */
+  function portEnLigne(r) {
+    const c = Object.assign({}, r || {});
+    if (Number(c.port) === 587 || Number(c.port) === 25 || c.securite === "starttls") {
+      c.securite = "ssl"; c.port = 465;
+    }
+    return c;
+  }
+
+  const auditEcoute = [];
+  async function auditEnLigne(liste) {
+    const offres = (liste || []).slice();
+    const resultats = [];
+    const PAQUET = 30;
+    for (let i = 0; i < offres.length; i += PAQUET) {
+      const r = await appelMoteur({ action: "audit", offres: offres.slice(i, i + PAQUET) }, 150000);
+      (r.resultat && r.resultat.resultats || []).forEach(x => resultats.push(x));
+      emet(auditEcoute, { faits: Math.min(i + PAQUET, offres.length), total: offres.length });
+    }
+    // Intitulés répétés à l'identique : jugés sur l'ensemble, comme sur PC.
+    const parTitre = new Map();
+    resultats.forEach(r => {
+      const cle = String(r.titre || "").trim().toLowerCase();
+      if (cle.length < 20) return;
+      if (!parTitre.has(cle)) parTitre.set(cle, []);
+      parTitre.get(cle).push(r);
+    });
+    parTitre.forEach(g => {
+      if (g.length < 3) return;
+      g.slice(1).forEach(r => {
+        if (r.statut === "pas-une-offre" || r.statut === "lien-mort") return;
+        r.statut = "titre-duplique";
+        r.detail = g.length + " lignes portent exactement le même intitulé";
+      });
+    });
+    const parStatut = {};
+    resultats.forEach(r => { parStatut[r.statut] = (parStatut[r.statut] || 0) + 1; });
+    return { resultats, parStatut, total: offres.length };
+  }
+
   async function veilleEnLigne() {
     if (veille.enCours) return { ok: false, message: "Une veille est déjà en cours." };
     veille.enCours = true;
@@ -470,7 +521,7 @@
     emet(veille.ecoute.debut, { startedAt });
     let resultat;
     try {
-      const { sources } = await appelVeille({ action: "liste" }, 30000);
+      const { sources } = await appelMoteur({ action: "liste" }, 30000);
       const aLire = (sources || []).filter(s => s.enLigne);
       const summary = [];
       let i = 0;
@@ -480,7 +531,7 @@
           const s = aLire[i++];
           emet(veille.ecoute.progres, { source: s.id, label: s.nom, status: "running" });
           let b;
-          try { b = (await appelVeille({ action: "source", id: s.id })).bilan; }
+          try { b = (await appelMoteur({ action: "source", id: s.id })).bilan; }
           catch (e) { b = { source: s.id, label: s.nom, status: "error", itemsNew: 0, itemsFound: 0, error: "Moteur en ligne : " + (e && e.message ? e.message : e) }; }
           b.label = b.label || s.nom;
           summary.push(b);
@@ -566,9 +617,10 @@
       return telecharge(await res.blob(), nomPropre(filename));
     },
 
-    fetchAttachments: async () => ({
-      error: "La recherche des documents sur le site source se fait depuis le logiciel sur PC. Sur le téléphone, ouvrez la source et ajoutez le document à la main."
-    }),
+    fetchAttachments: async (offerId, pageUrl) => {
+      try { return await appelMoteur({ action: "documents", offreId: offerId, lien: pageUrl }, 150000).then(d => d.resultat || {}); }
+      catch (e) { return { error: "Recherche impossible : " + (e && e.message ? e.message : e) }; }
+    },
 
     openExternal: async (url) => {
       const u = String(url || "");
@@ -617,14 +669,36 @@
       deposer: (fichiers) => lisFichiersChoisis(Array.from(fichiers || []))
     },
 
-    // Pas d'envoi direct depuis un navigateur : la page ouvre alors un
-    // brouillon dans la messagerie du téléphone.
+    // Messagerie : le moteur en ligne envoie avec la boîte réglée pour toute
+    // l'équipe (mot de passe gardé dans le coffre de Supabase). Non réglée,
+    // la page ouvre un brouillon dans la messagerie du téléphone.
     courriel: {
-      statut: async () => ({ configure: false, web: true }),
-      enregistrer: async () => indisponible("L'envoi direct"),
-      effacer: async () => ({ configure: false }),
-      tester: async () => indisponible("L'envoi direct"),
-      envoyer: async () => ({ ok: false, nonConfigure: true })
+      statut: () => moteur("courriel", "statut"),
+      enregistrer: (r) => moteur("courriel", "enregistrer", portEnLigne(r)),
+      effacer: () => moteur("courriel", "effacer"),
+      tester: (r) => moteur("courriel", "tester", portEnLigne(r)),
+      envoyer: async (msg) => {
+        const r = await moteur("courriel", "envoyer", msg);
+        return r && r.ok === false && /non configur|introuvable/i.test(r.message || "") ? Object.assign(r, { nonConfigure: true }) : r;
+      }
+    },
+
+    // Alertes e-mail Development AID : relevées par le moteur en ligne.
+    alertes: {
+      statut: () => moteur("alertes", "statut"),
+      enregistrer: (r) => moteur("alertes", "enregistrer", r),
+      effacer: () => moteur("alertes", "effacer"),
+      tester: (r) => moteur("alertes", "tester", r),
+      relever: async () => {
+        const r = await moteur("alertes", "relever");
+        return Object.assign({ ok: r.ok !== false && !r.error && r.status !== "error", message: r.error || r.message || null }, await moteur("alertes", "statut"));
+      }
+    },
+
+    // Audit du sourcing : vérifié par le moteur en ligne, par paquets.
+    audit: {
+      offres: (liste) => auditEnLigne(liste),
+      surAvancement: (cb) => auditEcoute.push(cb)
     }
   };
 
