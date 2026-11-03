@@ -844,6 +844,7 @@
     loadProfilAA();
     render();
     archiveObsoletes();
+    programmeBriefing();
     if (currentDetailId && $("#detail").open) fillDetail(currentDetailId);
   }
 
@@ -3907,6 +3908,19 @@
         const foin = sansAccent([o.titre, o.emetteur, o.description, o.secteur, o.type].join(" "));
         if (!texte.every(m => foin.includes(m))) return false;
       }
+      if (a.decision) {
+        if (a.decision === "Non arbitrée" ? !!o.decision : o.decision !== a.decision) return false;
+      }
+      if (a.pertinence) {
+        const n = pertinenceDe(o).niveau;
+        if ((n === "hors" ? "faible" : n) !== a.pertinence) return false;
+      }
+      if (a.cloturees) {
+        if (!o.date_limite || o.date_limite >= aujourd || estProtegee(o)) return false;
+      }
+      if (typeof a.nouvelles_depuis_jours === "number") {
+        if (!o.created_at || Date.parse(o.created_at) < Date.now() - a.nouvelles_depuis_jours * 86400000) return false;
+      }
       return true;
     });
   }
@@ -3926,7 +3940,9 @@
       statut: o.statut_traitement || "Nouvelle",
       resultat: o.resultat || null,
       montant: o.montant || null,
-      responsable: o.assigne || null
+      responsable: o.assigne || null,
+      decision: o.decision || null,
+      pertinence: pertinenceDe(o).niveau
     };
   }
 
@@ -4196,6 +4212,375 @@
       }
 
       default:
+        return executeOutilAgent(nom, a);
+    }
+  }
+
+  // ======================================================================
+  // Agent 2.0 — veilleur, analyste GO / NO GO, préparateur, chargé de suivi
+  // ======================================================================
+
+  const offreParId = (id) => OFFERS.find(x => x.id === id) || null;
+  const depuisMs = (jours) => Date.now() - jours * 86400000;
+
+  /** Dossier complet d'une offre : ce qu'il faut pour trancher ou répondre. */
+  async function dossierOffre(o) {
+    const p = pertinenceDe(o);
+    const exigences = Array.isArray(o.exigences) ? o.exigences : [];
+    const elig = AA.eligibilite ? AA.eligibilite.evalue(o, exigences, PROFIL_AA) : null;
+    const u = urgency(o.date_limite);
+    const d = {
+      offre: Object.assign(offreCompacte(o), {
+        description: o.description ? String(o.description).slice(0, 2500) : null,
+        criteres: o.criteres || null, contact: o.contact || null, lien_source: o.lien_source || null,
+        date_publication: o.date_publication || null, date_soumission: o.date_soumission || null,
+        decision_par: o.decision_par || null, decision_motif: o.decision_motif || null,
+        commentaire_suivi: o.commentaire_suivi || null
+      }),
+      delai: o.date_limite ? (u.days < 0 ? "Date limite dépassée de " + (-u.days) + " jours" : u.days + " jours avant la date limite") : "Date limite inconnue",
+      pertinence: {
+        niveau: p.niveau, score: p.score,
+        domaines: p.domaines.map(x => x.libelle), secteurs: p.secteurs.map(x => x.libelle),
+        clients_deja_servis: p.clients, raisons: p.raisons,
+        missions_comparables: p.references.map(r => ({ annee: r.annee, client: r.client, intitule: r.intitule, pays: r.pays, pourquoi: r.pourquoi }))
+      },
+      eligibilite: elig ? {
+        verdict: elig.libelle, role_aa: elig.role_aa || null,
+        exigences_connues: exigences.length,
+        criteres: (elig.criteres || []).map(c => ({ exigence: c.intitule || c.exigence, statut: c.statut, eliminatoire: !!c.bloquant, motif: c.motif })),
+        conditions: elig.conditions || [], raisons: elig.raisons || [],
+        score_technique: elig.score && elig.score.total != null ? elig.score.total : null
+      } : null,
+      profil_aa_renseigne: profilAARenseigne(),
+      plan_de_travail: tachesDe(o.id).map(t => ({ etape: t.libelle, echeance: t.echeance, responsable: t.responsable, fait: !!t.fait })),
+      documents_classes: FILE_COUNTS[o.id] || 0
+    };
+    if (sb) {
+      const [n, v, f] = await Promise.all([
+        sb.from("offer_notes").select("author,text,created_at").eq("offer_id", o.id).order("created_at", { ascending: true }),
+        sb.from("offer_votes").select("nom,avis,motif").eq("offer_id", o.id),
+        sb.from("offer_files").select("nom,source,created_at").eq("offer_id", o.id)
+      ]);
+      d.notes = (n.data || []).slice(-10);
+      d.avis_equipe = v.data || [];
+      d.documents = (f.data || []).map(x => x.nom);
+    }
+    if (!exigences.length) d.a_savoir = "Les exigences du DAO n'ont pas été relevées : le verdict d'éligibilité est provisoire. Proposez de lire le DAO (fiche de l'offre, « Lire le DAO avec l'IA ») ou demandez les critères.";
+    return d;
+  }
+
+  /** Point de situation : déterministe, il sert à l'IA comme au briefing du matin. */
+  function pointDuJour(depuisJours) {
+    const n = depuisJours || 3;
+    const auj = jourDecale(0);
+    const ouvertes = OFFERS.filter(o => !["Gagnée", "Perdue"].includes(o.statut_traitement) && !AA.metier.estEnAttente(o));
+    const nouvellesPertinentes = OFFERS
+      .filter(o => o.created_at && Date.parse(o.created_at) >= depuisMs(n) && (!o.date_limite || o.date_limite >= auj))
+      .filter(o => ["forte", "moyenne"].includes(pertinenceDe(o).niveau))
+      .sort((x, y) => pertinenceDe(y).score - pertinenceDe(x).score);
+    const echeances = ouvertes.filter(o => o.date_limite && o.date_limite >= auj && o.date_limite <= jourDecale(10) && o.decision !== "NO GO")
+      .sort(compareEcheance);
+    const goSansPlan = OFFERS.filter(o => o.decision === "GO" && phaseGo(o) === "prepa" && !tachesDe(o.id).length);
+    const tachesRetard = TACHES.filter(t => !t.fait && t.echeance && t.echeance < auj && offreParId(t.offer_id))
+      .map(t => ({ offre_id: t.offer_id, offre: offreParId(t.offer_id).titre, etape: t.libelle, echeance: t.echeance, responsable: t.responsable || null }));
+    const attente = AA.metier.enAttente(OFFERS);
+    const relances = attente.filter(o => AA.metier.attente(o).aRelancer);
+    const nonArbitrees = ouvertes.filter(o => !o.decision && o.date_limite && o.date_limite >= auj && pertinenceDe(o).niveau === "forte")
+      .sort(compareEcheance);
+    const cloturees = OFFERS.filter(o => o.date_limite && o.date_limite < auj && !estProtegee(o));
+    const court = (o) => ({ id: o.id, titre: o.titre, emetteur: o.emetteur, date_limite: o.date_limite || null,
+      jours_restants: o.date_limite ? urgency(o.date_limite).days : null, pertinence: pertinenceDe(o).niveau, decision: o.decision || null });
+    return {
+      date: auj,
+      nouvelles_pertinentes: { total: nouvellesPertinentes.length, offres: nouvellesPertinentes.slice(0, 8).map(court) },
+      echeances_10_jours: { total: echeances.length, offres: echeances.slice(0, 10).map(court) },
+      go_sans_plan: { total: goSansPlan.length, offres: goSansPlan.slice(0, 8).map(court) },
+      taches_en_retard: { total: tachesRetard.length, taches: tachesRetard.slice(0, 10) },
+      en_attente_de_resultat: attente.length,
+      relances_dues: { total: relances.length, offres: relances.slice(0, 8).map(o => Object.assign(court(o), { attente_jours: AA.metier.attente(o).jours, derniere_relance: o.date_relance || null })) },
+      pertinentes_non_arbitrees: { total: nonArbitrees.length, offres: nonArbitrees.slice(0, 8).map(court) },
+      cloturees_a_archiver: cloturees.length,
+      derniere_veille: derniereVeille || null,
+      __fiches: echeances.slice(0, 3).concat(nouvellesPertinentes.slice(0, 3))
+    };
+  }
+
+  // ------------------------------------------------------------ livrables
+  const LIVRABLES = new Map();     // id -> { nom, base64, mime }
+  let livrableSeq = 0;
+  const MIME = {
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  };
+
+  function nomLivrable(nom, ext) {
+    const base = String(nom || "Document A&A").replace(/\.(docx|xlsx)$/i, "")
+      .replace(/[\\/:*?"<>|\x00-\x1f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 90) || "Document A&A";
+    return base + "." + ext;
+  }
+
+  /** Classe des octets dans les documents d'une offre (stockage partagé). */
+  async function classeDansOffre(offre, nom, octets, mime) {
+    const propre = nom.replace(/[^\w.\-]+/g, "_").slice(-100);
+    const chemin = offre.id + "/" + Date.now() + "-" + propre;
+    const envoi = await sb.storage.from(BUCKET).upload(chemin, octets, { contentType: mime || "application/octet-stream", upsert: false });
+    if (envoi.error) return { erreur: true, message: envoi.error.message };
+    const { error } = await sb.from("offer_files").insert({
+      offer_id: offre.id, nom: nom, chemin: chemin, taille: octets.length,
+      type_mime: mime || null, source: "assistant", author: whoami || "Assistant"
+    });
+    if (error) return { erreur: true, message: error.message };
+    await loadFileCounts();
+    if (currentDetailId === offre.id) loadFiles(offre.id);
+    render();
+    return { ok: true };
+  }
+
+  const tailleLisible = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " Mo" : Math.max(1, Math.round(n / 1024)) + " Ko";
+
+  /** Carte du livrable dans la discussion : enregistrer, ouvrir. */
+  function carteLivrable(id, l, classeDans) {
+    const el = chatDit("lui",
+      '<div class="wa-doc wa-livrable"><svg class="ico"><use href="#' + (l.ext === "xlsx" ? "i-doc-tableur" : "i-doc-texte") + '"/></svg>' +
+      '<span class="t"><span class="n">' + esc(l.nom) + '</span>' +
+      '<span class="d">' + esc((l.ext === "xlsx" ? "Classeur Excel" : "Document Word") + " · " + tailleLisible(l.octets)) +
+      (classeDans ? " · classé dans l'offre" : "") + '</span></span></div>' +
+      '<div class="wa-livrable-actions">' +
+      '<button type="button" class="btn small primary" data-livrable-ouvrir="' + id + '">Ouvrir</button>' +
+      '<button type="button" class="btn small" data-livrable-enregistrer="' + id + '">Enregistrer sous…</button></div>');
+    chatDernierCote = null;
+    return el;
+  }
+
+  async function actionLivrable(id, mode) {
+    const l = LIVRABLES.get(id);
+    if (!l) return;
+    try {
+      const r = mode === "ouvrir" && window.aa.fichiers.ouvrir
+        ? await window.aa.fichiers.ouvrir(l.nom, l.base64)
+        : await window.aa.fichiers.enregistrer(l.nom, l.base64);
+      if (r && r.error) toast("Ouverture impossible : " + r.error, "error", 7000);
+      else if (r && r.saved && mode !== "ouvrir") toast("Enregistré : " + (r.filePath || l.nom), "success", 5000);
+    } catch (e) { toast("Opération impossible : " + (e && e.message ? e.message : e), "error"); }
+  }
+
+  /** Publie un livrable : carte dans la discussion, classement éventuel. */
+  async function publieLivrable(nom, ext, base64, offreId) {
+    const octets = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const id = "l" + (++livrableSeq);
+    const l = { nom, ext, base64, octets: octets.length, mime: MIME[ext] };
+    LIVRABLES.set(id, l);
+    let classe = null;
+    if (offreId) {
+      const offre = offreParId(offreId);
+      if (!offre) classe = { erreur: true, message: "Offre inconnue : le document n'a pas été classé." };
+      else if (!sb) classe = { erreur: true, message: "Registre non connecté : le document n'a pas été classé." };
+      else classe = await classeDansOffre(offre, nom, octets, l.mime);
+    }
+    carteLivrable(id, l, classe && classe.ok);
+    return {
+      ok: true, fichier: nom, taille: tailleLisible(octets.length),
+      classe_dans_offre: classe ? !!classe.ok : false,
+      message: "Le fichier est prêt : l'utilisateur l'ouvre ou l'enregistre depuis la carte affichée dans la discussion."
+        + (classe && classe.erreur ? " Classement impossible : " + classe.message : classe && classe.ok ? " Il est aussi classé dans les documents de l'offre." : "")
+    };
+  }
+
+  function blocsDeSections(sections) {
+    const blocs = [];
+    (sections || []).forEach(sec => {
+      if (!sec) return;
+      if (sec.titre) blocs.push({ type: "titre", texte: String(sec.titre) });
+      (sec.paragraphes || []).forEach(t => { if (t != null && String(t).trim()) blocs.push({ type: "para", texte: String(t) }); });
+      if (sec.puces && sec.puces.length) blocs.push({ type: "liste", items: sec.puces.map(String) });
+      if (sec.tableau && ((sec.tableau.lignes || []).length || (sec.tableau.entetes || []).length)) {
+        blocs.push({ type: "tableau", entetes: (sec.tableau.entetes || []).map(String),
+          lignes: (sec.tableau.lignes || []).map(l => (Array.isArray(l) ? l : [l]).map(x => x == null ? "" : String(x))) });
+      }
+    });
+    return blocs;
+  }
+
+  // Champs qu'une personne peut corriger depuis la fiche, et l'IA avec elle.
+  const CHAMPS_MODIFIABLES = ["titre", "emetteur", "origine", "type", "secteur", "region", "filiale", "date_limite",
+    "date_publication", "montant", "lien_source", "description", "criteres", "contact"];
+
+  async function executeOutilAgent(nom, a) {
+    switch (nom) {
+
+      case "analyser_offre": {
+        const o = offreParId(a.offre_id);
+        if (!o) return { erreur: true, message: "Aucune offre ne porte cet identifiant." };
+        const d = await dossierOffre(o);
+        d.__fiches = [o];
+        return d;
+      }
+
+      case "briefing":
+        return pointDuJour(a.depuis_jours);
+
+      case "chercher_references": {
+        const mots = sansAccent(a.texte || "").split(/\s+/).filter(m => m.length > 2);
+        const missions = (AA.references && AA.references.MISSIONS) || [];
+        const notes = missions.map(m => {
+          const foin = sansAccent(m.client + " " + m.intitule + " " + m.pays);
+          return { m, n: mots.filter(x => foin.includes(x)).length };
+        }).filter(x => x.n > 0).sort((x, y) => (y.n - x.n) || (y.m.annee - x.m.annee));
+        return {
+          total_references_aa: missions.length, trouvees: notes.length,
+          missions: notes.slice(0, Math.min(25, a.limite || 10)).map(x => ({ annee: x.m.annee, client: x.m.client, intitule: x.m.intitule, pays: x.m.pays }))
+        };
+      }
+
+      case "profil_entreprise":
+        return {
+          renseigne: profilAARenseigne(), profil: PROFIL_AA,
+          references_disponibles: ((AA.references && AA.references.MISSIONS) || []).length,
+          filiales: ["A&A Strategy", "A&A Finance and Investment Advisory", "A&A Project Delivery", "A&A Knowledge Institute"]
+        };
+
+      case "liste_corbeille": {
+        const t = a.texte ? sansAccent(a.texte) : "";
+        const rows = CORBEILLE.filter(o => !t || sansAccent([o.titre, o.emetteur, o.motif_suppression].join(" ")).includes(t))
+          .sort((x, y) => String(y.supprime_le).localeCompare(String(x.supprime_le)));
+        return { total: rows.length, offres: rows.slice(0, Math.min(50, a.limite || 20)).map(o => ({
+          id: o.id, titre: o.titre, emetteur: o.emetteur, date_limite: o.date_limite || null,
+          supprime_le: o.supprime_le, par: o.supprime_par, motif: o.motif_suppression })) };
+      }
+
+      // -------------------------------------------------------- écriture
+      case "modifier_offre": {
+        const o = offreParId(a.offre_id);
+        if (!o) return { erreur: true, message: "Offre inconnue." };
+        const patch = {};
+        CHAMPS_MODIFIABLES.forEach(k => { if (a[k] !== undefined) patch[k] = a[k] === "" ? null : a[k]; });
+        if (!Object.keys(patch).length) return { erreur: true, message: "Aucun champ à modifier." };
+        const ok = await saveField(o.id, patch);
+        return ok ? { ok: true, message: "Offre mise à jour.", champs: Object.keys(patch) } : { erreur: true, message: "Enregistrement refusé." };
+      }
+
+      case "mettre_en_corbeille": {
+        if (!sb) return { erreur: true, message: "Registre non connecté." };
+        const ids = [].concat(a.offre_ids || []).filter(id => offreParId(id)).slice(0, 100);
+        if (!ids.length) return { erreur: true, message: "Aucune des offres indiquées n'est au registre." };
+        const { error } = await sb.from("offers").update(signe({
+          supprime_le: new Date().toISOString(),
+          supprime_par: whoami || "Anonyme",
+          motif_suppression: String(a.motif || "Archivage par l'assistant").slice(0, 200)
+        })).in("id", ids);
+        if (error) return { erreur: true, message: error.message };
+        await loadOffers();
+        toast(plural(ids.length, "offre déplacée", "offres déplacées") + " en corbeille — restaurables à tout moment.", "success", 5000);
+        return { ok: true, archivees: ids.length };
+      }
+
+      case "restaurer_offres": {
+        const ids = [].concat(a.offre_ids || []).filter(id => CORBEILLE.some(o => o.id === id));
+        if (!ids.length) return { erreur: true, message: "Aucune de ces offres n'est dans la corbeille." };
+        const ok = await restaureOffres(ids);
+        return ok ? { ok: true, restaurees: ids.length } : { erreur: true, message: "Restauration refusée." };
+      }
+
+      case "planifier_reponse": {
+        if (!sb) return { erreur: true, message: "Registre non connecté." };
+        const o = offreParId(a.offre_id);
+        if (!o) return { erreur: true, message: "Offre inconnue." };
+        const etapes = (a.etapes || []).filter(e => e && String(e.libelle || "").trim()).slice(0, 30);
+        if (!etapes.length) return { erreur: true, message: "Aucune étape." };
+        if (a.remplacer && tachesDe(o.id).length) {
+          const { error } = await sb.from("offer_taches").delete().eq("offer_id", o.id);
+          if (error) return { erreur: true, message: error.message };
+        }
+        const depart = a.remplacer ? 0 : tachesDe(o.id).reduce((m, t) => Math.max(m, t.ordre || 0), 0);
+        const date = (x) => /^\d{4}-\d{2}-\d{2}$/.test(String(x || "")) ? x : null;
+        const { error } = await sb.from("offer_taches").insert(etapes.map((e, i) => ({
+          offer_id: o.id, ordre: depart + i + 1, libelle: String(e.libelle).slice(0, 300),
+          responsable: e.responsable || o.assigne || null, echeance: date(e.echeance),
+          created_by: whoami || "Assistant"
+        })));
+        if (error) return { erreur: true, message: error.message };
+        await loadTaches();
+        return { ok: true, etapes: etapes.length, message: "Plan de travail enregistré (visible dans la fiche et dans « Offres GO »)." };
+      }
+
+      case "envoyer_courriel": {
+        const dest = [].concat(a.destinataires || []).map(x => String(x).trim()).filter(x => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+        if (!dest.length) return { erreur: true, message: "Aucune adresse e-mail valide : demandez-la à l'utilisateur." };
+        const objet = String(a.objet || ""), corps = String(a.corps || "");
+        let envoi = null;
+        try { envoi = window.aa.courriel ? await window.aa.courriel.envoyer({ destinataires: dest, objet, corps }) : { nonConfigure: true }; }
+        catch (e) { envoi = { ok: false, message: e && e.message ? e.message : String(e) }; }
+        let mode = "envoye";
+        if (envoi && envoi.nonConfigure) {
+          window.aa.openExternal("mailto:" + dest.map(encodeURIComponent).join(",") + "?subject=" + encodeURIComponent(objet) + "&body=" + encodeURIComponent(corps));
+          mode = "brouillon";
+        } else if (!envoi || !envoi.ok) {
+          return { erreur: true, message: "Envoi impossible : " + ((envoi && envoi.message) || "cause inconnue") };
+        }
+        const o = a.offre_id ? offreParId(a.offre_id) : null;
+        if (o && sb) {
+          try { await sb.from("offer_mails").insert({ offer_id: o.id, objet, destinataires: dest.join(", "), envoye_par: whoami || "Assistant" }); } catch (_) {}
+          if (a.relance) {
+            const auj = jourIso(new Date());
+            const ligne = "Relance par e-mail le " + fmtCourt(auj) + " à " + dest.join(", ") + (whoami ? " (" + initials(whoami) + ")" : "");
+            await saveField(o.id, { date_relance: auj, commentaire_suivi: (o.commentaire_suivi ? o.commentaire_suivi.trim() + "\n" : "") + ligne });
+          }
+        }
+        return mode === "brouillon"
+          ? { ok: true, mode, message: "Messagerie non configurée : un brouillon s'est ouvert, l'utilisateur doit cliquer sur Envoyer." }
+          : { ok: true, mode, message: "Courriel envoyé à " + dest.join(", ") + "." };
+      }
+
+      case "produire_document": {
+        if (!window.aa.doc || !window.aa.doc.octets) return { erreur: true, message: "Production de documents indisponible sur ce poste." };
+        const doc = { titre: a.titre || "Document", sousTitre: a.sous_titre || "", blocs: blocsDeSections(a.sections) };
+        if (!doc.blocs.length) return { erreur: true, message: "Document vide : fournissez au moins une section." };
+        const r = await window.aa.doc.octets(doc);
+        if (!r || r.erreur || !r.base64) return { erreur: true, message: (r && r.erreur) || "Document non produit." };
+        return publieLivrable(nomLivrable(a.nom_fichier || a.titre, "docx"), "docx", r.base64, a.offre_id);
+      }
+
+      case "produire_tableau": {
+        if (!await ensureLib("xlsx")) return { erreur: true, message: "Module Excel indisponible." };
+        const feuilles = (a.feuilles || []).filter(f => f && Array.isArray(f.lignes));
+        if (!feuilles.length) return { erreur: true, message: "Classeur vide." };
+        const wb = XLSX.utils.book_new();
+        const vus = new Set();
+        feuilles.forEach((f, i) => {
+          const entetes = (f.entetes || []).map(String);
+          const lignes = f.lignes.map(l => (Array.isArray(l) ? l : [l]).map(x => {
+            if (x == null) return "";
+            const t = String(x).trim();
+            return /^-?\d+(?:[.,]\d+)?$/.test(t) && t.length < 16 ? Number(t.replace(",", ".")) : t;
+          }));
+          const ws = XLSX.utils.aoa_to_sheet([entetes].concat(lignes));
+          const larg = entetes.map((h, c) => Math.min(60, Math.max(10, String(h).length + 2,
+            ...lignes.slice(0, 200).map(l => String(l[c] == null ? "" : l[c]).length + 1))));
+          ws["!cols"] = larg.map(w => ({ wch: w }));
+          if (entetes.length) ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: lignes.length, c: entetes.length - 1 } }) };
+          let nomF = String(f.nom || ("Feuille " + (i + 1))).replace(/[\\/?*[\]:]/g, " ").slice(0, 31).trim() || ("Feuille " + (i + 1));
+          while (vus.has(nomF)) nomF = nomF.slice(0, 28) + " " + (i + 1);
+          vus.add(nomF);
+          XLSX.utils.book_append_sheet(wb, ws, nomF);
+        });
+        const b64 = arrayBufferToBase64(XLSX.write(wb, { bookType: "xlsx", type: "array" }));
+        return publieLivrable(nomLivrable(a.nom_fichier, "xlsx"), "xlsx", b64, a.offre_id);
+      }
+
+      case "trancher_offre": {
+        if (!estAdmin()) return { erreur: true, message: "Seul l'administrateur peut trancher un GO / NO GO." };
+        const o = offreParId(a.offre_id);
+        if (!o) return { erreur: true, message: "Offre inconnue." };
+        if (!["GO", "NO GO"].includes(a.decision)) return { erreur: true, message: "Décision attendue : GO ou NO GO." };
+        const patch = { decision: a.decision, decision_par: whoami || "Anonyme", decision_le: new Date().toISOString() };
+        if (a.motif) patch.decision_motif = String(a.motif).slice(0, 500);
+        if (a.decision === "NO GO" && !["Gagnée", "Perdue"].includes(o.statut_traitement)) patch.statut_traitement = "Perdue";
+        if (a.decision === "GO" && o.statut_traitement === "Nouvelle") patch.statut_traitement = "En cours";
+        const ok = await saveField(o.id, patch);
+        return ok ? { ok: true, message: "Décision enregistrée : " + a.decision + "." } : { erreur: true, message: "Enregistrement refusé." };
+      }
+
+      default:
         return { erreur: true, message: "Outil inconnu : " + nom };
     }
   }
@@ -4218,6 +4603,27 @@
       case "lancer_veille": return "Lancer une collecte sur les sources actives.";
       case "exporter_excel": return "Produire le classeur Excel " + (a.quoi === "prospection" ? "de la prospection" : "du suivi des offres") + ".";
       case "joindre_document_a_offre": return "Classer « " + esc(a.fichier || "") + " » dans les documents de l'offre « " + esc(titre(a.offre_id)) + " ».";
+      case "modifier_offre": return "Modifier « " + esc(titre(a.offre_id)) + " » :<br>" +
+        CHAMPS_MODIFIABLES.filter(k => a[k] !== undefined).map(k => "<b>" + esc(k.replace(/_/g, " ")) + "</b> → " + esc(String(a[k] || "(vide)").slice(0, 160))).join("<br>");
+      case "mettre_en_corbeille": {
+        const ids = [].concat(a.offre_ids || []);
+        const liste = ids.map(id => OFFERS.find(x => x.id === id)).filter(Boolean);
+        const prot = liste.filter(estProtegee).length;
+        return "Mettre en corbeille <b>" + plural(liste.length, "offre", "offres") + "</b> — motif : <i>" + esc(a.motif || "") + "</i>" +
+          (liste.length ? "<br><small>" + liste.slice(0, 8).map(o => "· " + esc((o.titre || "").slice(0, 90))).join("<br>") +
+            (liste.length > 8 ? "<br>· et " + (liste.length - 8) + " autres" : "") + "</small>" : "") +
+          (prot ? "<br><b>Attention :</b> " + plural(prot, "offre est tranchée GO, déposée ou conclue", "offres sont tranchées GO, déposées ou conclues") + "." : "") +
+          "<br><small>Restaurables à tout moment depuis la corbeille.</small>";
+      }
+      case "restaurer_offres": return "Remettre au registre <b>" + plural([].concat(a.offre_ids || []).length, "offre", "offres") + "</b> de la corbeille.";
+      case "planifier_reponse": return (a.remplacer ? "Remplacer" : "Créer") + " le plan de travail de « " + esc(titre(a.offre_id)) + " » :<br><small>" +
+        (a.etapes || []).slice(0, 14).map(e => "· " + esc(e.libelle || "") + (e.echeance ? " — " + esc(fmtCourt(e.echeance)) : "") + (e.responsable ? " (" + esc(e.responsable) + ")" : "")).join("<br>") + "</small>";
+      case "envoyer_courriel": return "Envoyer un courriel à <b>" + esc([].concat(a.destinataires || []).join(", ")) + "</b><br>Objet : " + esc(a.objet || "") +
+        '<div class="wa-confirm-mail">' + texteEnHtml(a.corps || "") + "</div>" +
+        (a.relance && a.offre_id ? "<small>La date de relance de « " + esc(titre(a.offre_id)) + " » sera mise à jour.</small>" : "");
+      case "produire_document": return "Produire le document Word « " + esc(a.titre || "") + " » et le classer dans l'offre « " + esc(titre(a.offre_id)) + " ».";
+      case "produire_tableau": return "Produire le classeur Excel « " + esc(a.nom_fichier || "") + " » et le classer dans l'offre « " + esc(titre(a.offre_id)) + " ».";
+      case "trancher_offre": return "Enregistrer la décision <b>" + esc(a.decision) + "</b> pour « " + esc(titre(a.offre_id)) + " »" + (a.motif ? " — " + esc(a.motif) : "") + ".";
       default: return "Exécuter l'action « " + esc(nom) + " ».";
     }
   }
@@ -4512,9 +4918,9 @@
             // Les intitulés d'offres viennent de sites que nous ne maîtrisons
             // pas ; ils remontent à l'assistant, qui peut les répéter. Ce qui
             // revient du modèle est donc du texte, jamais du balisage.
-            chatDit("lui", texteEnHtml(rep.texte || "…"));
+            chatDit("lui", texteIA(rep.texte || "…"));
             chatFiches(rep.offres, 0);
-            chatSuggestions(window.AAAssistant ? window.AAAssistant.suggestions(contexteAssistant()) : []);
+            chatSuggestions(suggestionsIA(rep.offres));
             chatFinDeFil();
             return;
           }
@@ -4558,8 +4964,80 @@
       chatAccueilli = true;
       chatAfficheLocal(window.AAAssistant.accueil(contexteAssistant()));
     }
+    if (briefingEnAttente) afficheBriefing();
+    else if (iaActive(iaEtat) && !chatLog.querySelector(".wa-msg.moi")) chatSuggestions(suggestionsIA());
     chatEtat(null);
     setTimeout(() => chatInput.focus(), 60);
+  }
+
+  // ------------------------------------------------- le point du matin
+  // À la première ouverture de la journée, l'assistant prépare un point de
+  // situation (calculé ici, sans IA) et le signale sur sa bulle. Les
+  // propositions qui le suivent sont des demandes toutes faites pour l'IA.
+  let briefingProgramme = false;
+  let briefingEnAttente = null;
+
+  function programmeBriefing() {
+    if (briefingProgramme || !chatBubble) return;
+    briefingProgramme = true;
+    // Les tâches et le profil arrivent après les offres : on leur laisse le temps.
+    setTimeout(() => {
+      const auj = jourDecale(0);
+      const dernier = pref("briefing-jour", "");
+      if (dernier === auj) return;
+      const ecart = dernier ? Math.round((Date.parse(auj) - Date.parse(dernier)) / 86400000) : 3;
+      const p = pointDuJour(Math.min(7, Math.max(1, ecart || 1)));
+      const notable = p.nouvelles_pertinentes.total + p.echeances_10_jours.total + p.go_sans_plan.total
+        + p.taches_en_retard.total + p.relances_dues.total + p.pertinentes_non_arbitrees.total;
+      if (!notable) { setPref("briefing-jour", auj); return; }
+      briefingEnAttente = p;
+      chatBubble.classList.add("is-new");
+      if (chatOuvert) afficheBriefing();
+      else toast("Votre point du jour est prêt : ouvrez l'assistant.", "info", 7000);
+    }, 3500);
+  }
+
+  /** Propositions quand l'IA est là : des tâches, pas des comptages. */
+  function suggestionsIA(offres) {
+    if (offres && offres.length === 1) {
+      const o = offres[0];
+      const l = o.decision === "GO"
+        ? ["Fais le rétroplanning de cette offre jusqu'au dépôt", "Liste des pièces à fournir pour cette offre, en Word", "Note de compréhension des TDR de cette offre"]
+        : ["Qualifie GO / NO GO cette offre et fais la note en Word", "Quelles missions de référence citer pour cette offre ?", "Prépare la demande d'arbitrage à l'équipe"];
+      return l;
+    }
+    const l = ["Point du jour : quoi faire en priorité ?", "Qualifie GO / NO GO les offres pertinentes non arbitrées"];
+    if (OFFERS.some(o => o.decision === "GO" && phaseGo(o) === "prepa" && !tachesDe(o.id).length)) l.push("Prépare le rétroplanning des offres GO sans plan");
+    if (AA.metier.enAttente(OFFERS).some(o => AA.metier.attente(o).aRelancer)) l.push("Rédige les relances des offres en attente");
+    l.push("Propose l'archivage des offres clôturées non traitées");
+    return l.slice(0, 4);
+  }
+
+  function afficheBriefing() {
+    const p = briefingEnAttente;
+    if (!p) return;
+    briefingEnAttente = null;
+    setPref("briefing-jour", jourDecale(0));
+    const li = [];
+    const n = (x, un, plusieurs) => plural(x, un, plusieurs).replace(/^(\d+)/, "<b>$1</b>");
+    if (p.echeances_10_jours.total) li.push(n(p.echeances_10_jours.total, "offre arrive", "offres arrivent") + " à échéance dans les 10 jours");
+    if (p.nouvelles_pertinentes.total) li.push(n(p.nouvelles_pertinentes.total, "nouvelle offre pertinente", "nouvelles offres pertinentes") + " pour A&amp;A");
+    if (p.pertinentes_non_arbitrees.total) li.push(n(p.pertinentes_non_arbitrees.total, "offre à forte pertinence attend", "offres à forte pertinence attendent") + " un GO / NO GO");
+    if (p.go_sans_plan.total) li.push(n(p.go_sans_plan.total, "offre GO n'a", "offres GO n'ont") + " pas de plan de travail");
+    if (p.taches_en_retard.total) li.push(n(p.taches_en_retard.total, "étape de préparation est", "étapes de préparation sont") + " en retard");
+    if (p.relances_dues.total) li.push(n(p.relances_dues.total, "offre déposée est", "offres déposées sont") + " à relancer");
+    if (p.cloturees_a_archiver) li.push(n(p.cloturees_a_archiver, "offre clôturée non traitée peut", "offres clôturées non traitées peuvent") + " partir en corbeille");
+    chatDit("lui", "<b>Point du jour</b><ul>" + li.map(x => "<li>" + x + "</li>").join("") + "</ul>");
+    chatFiches(p.__fiches.filter((o, i, t) => t.indexOf(o) === i).slice(0, 5), 0);
+    if (iaActive(iaEtat)) {
+      const props = ["Fais-moi la note de briefing du jour en Word"];
+      if (p.pertinentes_non_arbitrees.total || p.nouvelles_pertinentes.total) props.push("Qualifie GO / NO GO les offres pertinentes non arbitrées");
+      if (p.go_sans_plan.total) props.push("Prépare le rétroplanning des offres GO sans plan");
+      if (p.relances_dues.total) props.push("Rédige les relances des offres en attente");
+      if (p.cloturees_a_archiver) props.push("Propose l'archivage des offres clôturées");
+      chatSuggestions(props.slice(0, 4));
+    }
+    chatFinDeFil();
   }
 
   function chatFerme() {
@@ -4622,6 +5100,8 @@
     });
 
     chatLog.addEventListener("click", (e) => {
+      const lv = e.target.closest("[data-livrable-ouvrir],[data-livrable-enregistrer]");
+      if (lv) { actionLivrable(lv.dataset.livrableOuvrir || lv.dataset.livrableEnregistrer, lv.dataset.livrableOuvrir ? "ouvrir" : "enregistrer"); return; }
       const b = e.target.closest("[data-chat-open]");
       if (!b) return;
       chatFerme();
@@ -5387,6 +5867,24 @@
    */
   function texteEnHtml(texte) {
     return esc(String(texte == null ? "" : texte)).replace(/\n/g, "<br>");
+  }
+
+  /**
+   * Réponse de l'IA : tout est échappé, puis seules quelques balises nues
+   * (sans attribut) sont rétablies — gras, italique, listes. Le Markdown que
+   * certains modèles écrivent malgré la consigne (**gras**, puces « - ») est
+   * converti de même. Aucun lien, aucun attribut ne peut passer.
+   */
+  function texteIA(texte) {
+    let h = esc(String(texte == null ? "" : texte).replace(/\r/g, ""));
+    h = h.replace(/&lt;(\/?)(b|i|ul|ol|li)&gt;/gi, (m, f, t) => "<" + f + t.toLowerCase() + ">")
+         .replace(/&lt;br\s*\/?&gt;/gi, "\n");
+    h = h.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>").replace(/^#{1,4}\s+(.+)$/gm, "<b>$1</b>");
+    // Puces Markdown → liste
+    h = h.replace(/(?:^|\n)((?:[ \t]*[-•*][ \t]+[^\n]+(?:\n|$))+)/g, (m, bloc) =>
+      "\n<ul>" + bloc.trim().split(/\n/).map(l => "<li>" + l.replace(/^[ \t]*[-•*][ \t]+/, "") + "</li>").join("") + "</ul>\n");
+    h = h.replace(/\n*(<\/?(?:ul|ol|li)>)\n*/g, "$1").replace(/^\n+|\n+$/g, "");
+    return h.replace(/\n/g, "<br>");
   }
 
   function avancement(id) {

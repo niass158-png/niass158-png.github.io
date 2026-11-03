@@ -29,7 +29,7 @@
   "use strict";
 
   // Remplacés par web/construire-web.js au moment d'assembler le site.
-  const VERSION = "1.18.0 du 03/11/2026 13h43";
+  const VERSION = "1.19.0 du 03/11/2026 16h11";
   const CONFIG = {"supabaseUrl":"https://pdehcpcwjqihmvzrduon.supabase.co","supabaseAnonKey":"sb_publishable_P39rSCAXlyh2Y6m3aFF8HA_bAy5_QQP","comptes":{"contributeur":"equipe@aastrategy.co","administrateur":"admin@aastrategy.co"}};
 
   document.documentElement.dataset.plateforme = "web";
@@ -106,6 +106,12 @@
     if (window.AAWeb && window.AAWeb.proposeLien) window.AAWeb.proposeLien(url, libelle);
     else window.location.href = url;
   }
+
+  const typeDe = (nom) => ({
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    pdf: "application/pdf"
+  })[(String(nom || "").match(/\.([a-z0-9]+)$/i) || [, ""])[1].toLowerCase()] || "application/octet-stream";
 
   /** Enregistre des octets sous un nom : le téléphone les range dans ses Téléchargements / Fichiers. */
   function telecharge(octets, nom, type) {
@@ -629,7 +635,13 @@
     },
     openFile: async (url, filename) => { ouvreLien(url, "Ouvrir " + (filename || "le document")); return { ok: true }; },
 
-    doc: { fiche },
+    doc: {
+      fiche,
+      octets: async (doc) => {
+        try { const L = await lecteurs(); return { base64: enBase64(L.creerDocx(doc || {})) }; }
+        catch (e) { return { erreur: e && e.message ? e.message : String(e) }; }
+      }
+    },
 
     ia: {
       statut: async () => statutIA(),
@@ -664,6 +676,10 @@
           return { erreur: "Lecture impossible : " + (e && e.message ? e.message : e) };
         }
       },
+      // Livrables produits dans l'application : le téléphone les range dans
+      // ses Téléchargements, d'où il les ouvre.
+      enregistrer: async (nom, base64) => telecharge(deBase64(base64), nom, typeDe(nom)),
+      ouvrir: async (nom, base64) => telecharge(deBase64(base64), nom, typeDe(nom)),
       // Propre à la version web : la page peut transmettre des fichiers
       // déposés (glisser-déposer sur ordinateur).
       deposer: (fichiers) => lisFichiersChoisis(Array.from(fichiers || []))

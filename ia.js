@@ -26,10 +26,10 @@
 (function () {
   "use strict";
 
-  const VERSION = "1.0.0";
-  const TOURS_MAX = 6;          // appels d'outils enchaînés avant de rendre la main
-  const MEMOIRE_MAX = 24;       // messages conservés : au-delà, la facture grimpe
-  const RESULTAT_MAX = 6000;    // caractères d'un résultat d'outil
+  const VERSION = "2.0.0";
+  const TOURS_MAX = 12;         // appels d'outils enchaînés avant de rendre la main
+  const MEMOIRE_MAX = 30;       // messages conservés : au-delà, la facture grimpe
+  const RESULTAT_MAX = 12000;   // caractères d'un résultat d'outil
 
   // ======================================================================
   // Les filtres, décrits une fois et réutilisés par plusieurs outils
@@ -47,7 +47,11 @@
     texte: { type: "string", description: "Mots à chercher dans l'intitulé, l'émetteur et la description." },
     echeance_max_jours: { type: "integer", description: "Ne garder que les offres dont la date limite tombe dans ce nombre de jours." },
     en_retard: { type: "boolean", description: "Ne garder que les offres dont l'échéance est dépassée et qui ne sont ni gagnées ni perdues." },
-    sans_echeance: { type: "boolean", description: "Ne garder que les offres sans date limite renseignée." }
+    sans_echeance: { type: "boolean", description: "Ne garder que les offres sans date limite renseignée." },
+    decision: { type: "string", enum: ["GO", "NO GO", "Non arbitrée"], description: "Arbitrage GO / NO GO de l'offre." },
+    pertinence: { type: "string", enum: ["forte", "moyenne", "faible"], description: "Pertinence pour A&A, calculée d'après les 65 missions de référence du groupe." },
+    cloturees: { type: "boolean", description: "Ne garder que les offres dont la date limite est passée et qui ne sont ni tranchées GO, ni déposées, ni conclues : les candidates à l'archivage." },
+    nouvelles_depuis_jours: { type: "integer", description: "Ne garder que les offres entrées au registre depuis ce nombre de jours." }
   };
 
   function avecFiltres(extra, requis) {
@@ -94,7 +98,22 @@
       { type: "object", properties: {} }],
 
     ["liste_contacts", "Carnet de contacts utilisé pour les demandes d'arbitrage.",
-      { type: "object", properties: {} }]
+      { type: "object", properties: {} }],
+
+    ["analyser_offre", "Dossier d'analyse complet d'une offre, pour qualifier un GO / NO GO ou préparer la réponse : pertinence pour A&A et missions comparables déjà réalisées, verdict d'éligibilité (exigences du DAO jugées contre le profil d'A&A), échéance, documents (TDR…), plan de travail, avis et notes de l'équipe.",
+      { type: "object", properties: { offre_id: { type: "string" } }, required: ["offre_id"] }],
+
+    ["briefing", "Point de situation du registre : nouvelles offres pertinentes, échéances proches, offres GO sans plan de travail, tâches en retard, relances dues, offres en attente de résultat, offres pertinentes non arbitrées, dernière veille. À utiliser pour « où en est-on », « quoi faire aujourd'hui », « briefing ».",
+      { type: "object", properties: { depuis_jours: { type: "integer", description: "Fenêtre des « nouvelles » offres, en jours (défaut 3)." } } }],
+
+    ["chercher_references", "Cherche dans les 65 missions de référence d'A&A (client, intitulé, année, pays) celles à citer dans une offre technique.",
+      { type: "object", properties: { texte: { type: "string", description: "Mots-clés (secteur, client, type de mission)." }, limite: { type: "integer", description: "Défaut 10." } }, required: ["texte"] }],
+
+    ["profil_entreprise", "Profil d'A&A tel qu'enregistré (chiffre d'affaires, ancienneté, nombre de références, certifications, agréments, filiales) : ce qui sert à juger l'éligibilité.",
+      { type: "object", properties: {} }],
+
+    ["liste_corbeille", "Offres mises en corbeille (archivées), avec le motif et l'auteur.",
+      { type: "object", properties: { texte: { type: "string" }, limite: { type: "integer", description: "Défaut 20." } } }]
   ];
 
   const NAVIGATION = [
@@ -167,10 +186,88 @@
       { type: "object", properties: {
         fichier: { type: "string", description: "Nom exact du fichier joint à la discussion." },
         offre_id: { type: "string", description: "Identifiant de l'offre de destination." }
-      }, required: ["fichier", "offre_id"] }]
+      }, required: ["fichier", "offre_id"] }],
+
+    ["modifier_offre", "Corrige ou complète les champs d'une offre (intitulé, autorité, dates, montant, filiale, type, secteur, région, lien, description, critères, contact). Seuls les champs fournis changent.",
+      { type: "object", properties: {
+        offre_id: { type: "string" },
+        titre: { type: "string" }, emetteur: { type: "string" }, origine: { type: "string", enum: ["État", "Privé"] },
+        type: { type: "string" }, secteur: { type: "string" }, region: { type: "string" }, filiale: { type: "string" },
+        date_limite: { type: "string", description: "AAAA-MM-JJ" }, date_publication: { type: "string", description: "AAAA-MM-JJ" },
+        montant: { type: "string" }, lien_source: { type: "string" }, description: { type: "string" },
+        criteres: { type: "string" }, contact: { type: "string" }
+      }, required: ["offre_id"] }],
+
+    ["mettre_en_corbeille", "Archive des offres : elles quittent le registre pour la corbeille, d'où l'on peut les restaurer à tout moment. Pour les offres clôturées, hors sujet, en doublon ou traitées.",
+      { type: "object", properties: {
+        offre_ids: { type: "array", items: { type: "string" }, description: "Identifiants des offres (100 au plus)." },
+        motif: { type: "string", description: "Motif court, visible dans la corbeille (ex. « Clôturée, non traitée »)." }
+      }, required: ["offre_ids", "motif"] }],
+
+    ["restaurer_offres", "Remet au registre des offres de la corbeille.",
+      { type: "object", properties: { offre_ids: { type: "array", items: { type: "string" } } }, required: ["offre_ids"] }],
+
+    ["planifier_reponse", "Crée le plan de travail (rétroplanning) d'une offre jusqu'au dépôt : étapes datées, avec un responsable. Il apparaît dans la fiche de l'offre et dans « Offres GO ».",
+      { type: "object", properties: {
+        offre_id: { type: "string" },
+        etapes: { type: "array", items: { type: "object", properties: {
+          libelle: { type: "string" }, echeance: { type: "string", description: "AAAA-MM-JJ" }, responsable: { type: "string" }
+        }, required: ["libelle"] } },
+        remplacer: { type: "boolean", description: "Vrai pour remplacer le plan existant au lieu de le compléter." }
+      }, required: ["offre_id", "etapes"] }],
+
+    ["envoyer_courriel", "Envoie un courriel depuis la messagerie du cabinet (relance d'une autorité contractante, demande de résultat, demande d'arbitrage, message à l'équipe). Si la messagerie n'est pas réglée, un brouillon s'ouvre. Rédigez un texte complet et professionnel, signé.",
+      { type: "object", properties: {
+        destinataires: { type: "array", items: { type: "string" }, description: "Adresses e-mail." },
+        objet: { type: "string" }, corps: { type: "string", description: "Texte brut, avec formule d'appel et signature." },
+        offre_id: { type: "string", description: "Offre concernée : le courriel y est noté dans l'historique." },
+        relance: { type: "boolean", description: "Vrai s'il s'agit d'une relance : la date de relance de l'offre est mise à jour." }
+      }, required: ["destinataires", "objet", "corps"] }],
+
+    ["produire_document", "Produit un vrai document Word (.docx) : note de qualification GO / NO GO, note de compréhension des TDR, liste des pièces à fournir, contrôle de conformité, courrier, briefing, synthèse… L'utilisateur l'enregistre d'un clic ; avec offre_id, il est aussi classé dans les documents de l'offre pour toute l'équipe.",
+      { type: "object", properties: {
+        titre: { type: "string" }, sous_titre: { type: "string" },
+        nom_fichier: { type: "string", description: "Sans extension." },
+        sections: { type: "array", items: { type: "object", properties: {
+          titre: { type: "string" },
+          paragraphes: { type: "array", items: { type: "string" } },
+          puces: { type: "array", items: { type: "string" } },
+          tableau: { type: "object", properties: {
+            entetes: { type: "array", items: { type: "string" } },
+            lignes: { type: "array", items: { type: "array", items: { type: "string" } } }
+          } }
+        } } },
+        offre_id: { type: "string", description: "Facultatif : classer le document dans cette offre." }
+      }, required: ["titre", "sections"] }],
+
+    ["produire_tableau", "Produit un vrai classeur Excel (.xlsx) : rétroplanning, liste de pièces, liste d'offres, tableau de relances, matrice d'analyse… L'utilisateur l'enregistre d'un clic ; avec offre_id, il est aussi classé dans l'offre.",
+      { type: "object", properties: {
+        nom_fichier: { type: "string", description: "Sans extension." },
+        feuilles: { type: "array", items: { type: "object", properties: {
+          nom: { type: "string" },
+          entetes: { type: "array", items: { type: "string" } },
+          lignes: { type: "array", items: { type: "array", items: { type: "string" } } }
+        }, required: ["entetes", "lignes"] } },
+        offre_id: { type: "string" }
+      }, required: ["nom_fichier", "feuilles"] }]
   ];
 
-  const NOMS_ECRITURE = new Set(ECRITURE.map(o => o[0]));
+  // Réservé aux administrateurs : la base le refuse de toute façon aux contributeurs.
+  const ADMIN = [
+    ["trancher_offre", "Enregistre la décision GO / NO GO d'une offre. Ne l'employez que sur demande expresse de l'administrateur, jamais de votre propre initiative.",
+      { type: "object", properties: {
+        offre_id: { type: "string" }, decision: { type: "string", enum: ["GO", "NO GO"] },
+        motif: { type: "string", description: "Motif court de la décision." }
+      }, required: ["offre_id", "decision"] }]
+  ];
+
+  const NOMS_ECRITURE = new Set(ECRITURE.concat(ADMIN).map(o => o[0]));
+  // Produire un document n'écrit au registre que s'il faut le classer dans une offre.
+  const ECRITURE_SI_OFFRE = new Set(["produire_document", "produire_tableau"]);
+  function estEcriture(nom, args) {
+    if (ECRITURE_SI_OFFRE.has(nom)) return !!(args && args.offre_id);
+    return NOMS_ECRITURE.has(nom);
+  }
 
   function enSchema(liste) {
     return liste.map(([name, description, parameters]) => ({
@@ -180,6 +277,8 @@
   }
 
   const OUTILS = enSchema(LECTURE).concat(enSchema(NAVIGATION), enSchema(ECRITURE));
+  const OUTILS_ADMIN = OUTILS.concat(enSchema(ADMIN));
+  const outilsPour = (profil) => (profil === "administrateur" ? OUTILS_ADMIN : OUTILS);
 
   // ======================================================================
   // La consigne
@@ -188,41 +287,49 @@
   function consigne(ctx) {
     const c = ctx || {};
     const r = c.resume || {};
+    const admin = c.profil === "administrateur";
     const lignes = [];
 
-    lignes.push("Vous êtes l'assistant du logiciel « A&A Registre des Offres », utilisé par le cabinet Groupe A&A Strategy & Investment Advisory, à Dakar. Le logiciel sert à repérer, arbitrer et suivre les appels d'offres, manifestations d'intérêt et marchés publics au Sénégal.");
+    lignes.push("Vous êtes le collaborateur IA de l'équipe « appels d'offres » du Groupe A&A Strategy & Investment Advisory, à Dakar, et vous travaillez dans le logiciel « A&A Registre des Offres ». Le groupe compte quatre filiales : A&A Strategy (études, stratégie, conseil institutionnel), A&A Finance and Investment Advisory (structuration financière, investissement, PPP), A&A Project Delivery (maîtrise d'œuvre, suivi de travaux, infrastructures) et A&A Knowledge Institute (formation, renforcement de capacités). Votre travail n'est pas de réciter le registre : c'est de faire gagner des marchés au cabinet et du temps à l'équipe.");
+    lignes.push("");
+    lignes.push("VOS QUATRE RÔLES");
+    lignes.push("1. VEILLEUR — Vous signalez ce qui compte : nouvelles offres pertinentes, échéances proches, dossiers GO sans plan, tâches en retard, relances dues. Outil : briefing. Terminez toujours par les 2 ou 3 actions à faire en priorité.");
+    lignes.push("2. ANALYSTE GO / NO GO — Pour qualifier une offre, appelez analyser_offre, puis rendez une recommandation nette (GO, GO en groupement, NO GO) argumentée sur : adéquation avec les domaines et missions de référence d'A&A, éligibilité (chiffre d'affaires, ancienneté, références similaires, agréments, personnel clé), délai restant face au travail à fournir, concurrence et risques. Citez les missions comparables à mettre en avant. Si les exigences du DAO ne sont pas connues, dites-le et proposez de lire le DAO (fiche de l'offre, « Lire le DAO avec l'IA »). La décision appartient à l'équipe" + (admin ? "; vous ne tranchez (trancher_offre) que sur demande expresse." : "."));
+    lignes.push("3. PRÉPARATEUR DE RÉPONSE — Pour une offre GO : note de compréhension des TDR, liste des pièces administratives et techniques à fournir, contrôle de conformité avant dépôt, missions de référence et profils d'experts à mobiliser, rétroplanning jusqu'à la date limite (planifier_reponse, en remontant depuis la date de dépôt : lecture du dossier, questions d'éclaircissement, pièces administratives, offre technique, offre financière, relecture, signature, dépôt).");
+    lignes.push("4. CHARGÉ DE SUIVI ET RELANCES — Relances des autorités contractantes, demandes de résultats, demandes d'arbitrage, suites de la prospection. Rédigez des courriels complets, polis et précis (référence de l'avis, date de dépôt, objet), signés au nom de " + (c.whoami || "l'utilisateur") + ", A&A Group, et envoyez-les avec envoyer_courriel.");
+    lignes.push("");
+    lignes.push("PRODUISEZ DES LIVRABLES");
+    lignes.push("- Dès qu'une demande appelle une note, une analyse, une liste, un plan, un courrier ou un tableau, produisez le fichier : produire_document pour un Word, produire_tableau pour un Excel. Ne vous contentez jamais d'une longue réponse dans la discussion.");
+    lignes.push("- Un document est structuré en sections titrées, avec des paragraphes, des puces et au besoin un tableau. Il est complet et directement utilisable par un consultant, sans mention de vous-même.");
+    lignes.push("- Quand le livrable concerne une offre, renseignez offre_id : il sera classé dans ses documents pour toute l'équipe.");
+    lignes.push("- Dans la discussion, résumez ensuite en deux ou trois lignes ce que contient le livrable et ce qu'il reste à faire.");
+    lignes.push("");
+    lignes.push("VOUS AGISSEZ DANS LE LOGICIEL COMME UN MEMBRE DE L'ÉQUIPE");
+    lignes.push("- Vous pouvez créer et corriger des offres (modifier_offre), changer leur statut, les assigner, noter, planifier, renseigner le suivi, classer des documents, envoyer des courriels.");
+    lignes.push("- Vous pouvez archiver en corbeille (mettre_en_corbeille) les offres clôturées non traitées, hors sujet ou en doublon, et les restaurer. Pour un nettoyage, cherchez d'abord (filtre cloturees, par exemple), annoncez combien et lesquelles, puis archivez en une seule fois avec un motif clair. N'archivez jamais une offre tranchée GO, déposée ou conclue sans demande explicite. La suppression définitive se fait à la main, dans la corbeille.");
+    lignes.push("- Chaque action qui modifie le registre est montrée à l'utilisateur, qui confirme ou annule : proposez franchement, il garde la main. S'il refuse, n'insistez pas.");
     lignes.push("");
     lignes.push("VOTRE INTERLOCUTEUR");
-    lignes.push("- Nom : " + (c.whoami || "un collaborateur"));
-    lignes.push("- Profil : " + (c.profil === "administrateur" ? "administrateur (peut tout faire, y compris trancher un GO / NO GO et supprimer)" : "contributeur (ne peut ni supprimer ni trancher un GO / NO GO)"));
+    lignes.push("- " + (c.whoami || "un collaborateur") + ", " + (admin ? "administrateur du registre" : "contributeur (ne peut pas trancher un GO / NO GO)") + ".");
     lignes.push("- Date du jour : " + (c.aujourdhui || ""));
     lignes.push("");
     lignes.push("ÉTAT DU REGISTRE (instantané, à vérifier par les outils avant toute affirmation chiffrée)");
-    lignes.push("- " + (r.total || 0) + " offres au total, dont " + (r.echeanceSemaine || 0) + " à échéance sous 7 jours et " + (r.enRetard || 0) + " en retard.");
+    lignes.push("- " + (r.total || 0) + " offres, dont " + (r.echeanceSemaine || 0) + " à échéance sous 7 jours et " + (r.enRetard || 0) + " en retard.");
     if (r.statuts) lignes.push("- Statuts : " + r.statuts);
     if (r.types) lignes.push("- Types présents : " + r.types);
     if (r.secteurs) lignes.push("- Secteurs présents : " + r.secteurs);
-    if (r.regions) lignes.push("- Régions présentes : " + r.regions);
     if (r.filiales) lignes.push("- Filiales : " + r.filiales);
     lignes.push("- " + (r.opportunites || 0) + " opportunités de prospection, " + (r.sources || 0) + " sources de veille.");
     lignes.push("");
-    lignes.push("COMMENT TRAVAILLER");
-    lignes.push("1. Ne donnez jamais un chiffre ni le titre d'une offre de mémoire : appelez un outil. L'instantané ci-dessus sert à vous orienter, pas à répondre.");
-    lignes.push("2. Avant de filtrer sur un type, un secteur ou une région, employez le libellé exact — liste_valeurs vous le donne. « BTP » et « bâtiment » ne sont pas la même chaîne en base.");
-    lignes.push("3. Enchaînez les outils autant qu'il le faut : chercher, puis ouvrir le détail, puis conclure. Vous avez droit à plusieurs tours.");
-    lignes.push("4. Quand l'utilisateur veut voir une sélection dans le registre plutôt que dans la discussion, appliquez de vrais filtres à l'écran (appliquer_filtres) : il pourra les affiner et les exporter.");
-    lignes.push("5. Si une demande est ambiguë, posez une question courte plutôt que de deviner.");
-    lignes.push("6. Quand un document est joint à la discussion, son texte vous est fourni avec la question. Servez-vous-en : résumez, comparez au registre, repérez l'autorité contractante, l'objet et la date limite. Si le document décrit un appel d'offres absent du registre, proposez de l'enregistrer — sans jamais inventer les champs manquants. Pour ranger la pièce dans les documents d'une offre, employez joindre_document_a_offre avec le nom exact du fichier.");
-    lignes.push("");
-    lignes.push("CE QUE VOUS NE FAITES PAS");
-    lignes.push("- Vous ne supprimez rien : aucun outil ne le permet, et c'est voulu.");
-    lignes.push("- Vous ne tranchez aucun GO / NO GO : cette décision engage le cabinet, elle se prend dans la fiche de l'offre, et la base la refuse aux contributeurs.");
-    lignes.push("- Vous n'inventez aucune donnée pour remplir un formulaire. Si l'intitulé ou l'autorité contractante manque, demandez-les.");
-    lignes.push("- Toute écriture est soumise à la confirmation de l'utilisateur. S'il refuse, n'insistez pas et proposez autre chose.");
+    lignes.push("RÈGLES");
+    lignes.push("- Aucun chiffre, intitulé, date ou exigence de mémoire : vérifiez par un outil. N'inventez jamais une donnée d'A&A (chiffre d'affaires, références, certifications) : prenez-la dans profil_entreprise ou chercher_references, sinon signalez qu'elle manque.");
+    lignes.push("- Filtres : employez les libellés exacts (liste_valeurs).");
+    lignes.push("- Enchaînez les outils autant qu'il le faut (chercher, analyser, produire, classer) avant de répondre.");
+    lignes.push("- Document joint à la discussion : son texte vous est fourni ; servez-vous-en (résumé, exigences, comparaison au registre). S'il décrit un avis absent du registre, proposez de l'enregistrer.");
+    lignes.push("- Demande ambiguë : une question courte plutôt qu'une supposition.");
     lignes.push("");
     lignes.push("TON");
-    lignes.push("Français professionnel, direct, sans flatterie ni formules creuses. Des réponses courtes : trois à cinq lignes en général. Les chiffres en gras avec <b>…</b>, les listes avec <ul><li>…</li></ul>. Pas de Markdown, pas de tableaux, pas d'émojis. Vous parlez à un consultant pressé, pas à un lecteur de manuel.");
-    lignes.push("Quand vous citez des offres, ne recopiez pas leurs intitulés en longueur : l'application les affiche déjà en fiches cliquables sous votre réponse. Dites ce qui compte — combien, lesquelles méritent attention, pourquoi.");
+    lignes.push("Français professionnel, direct, orienté décision, sans flatterie. Dans la discussion : court (trois à six lignes), chiffres en gras avec <b>…</b>, listes avec <ul><li>…</li></ul>, pas de Markdown ni d'émojis. Les fiches des offres citées s'affichent sous votre réponse : inutile de recopier leurs intitulés en entier.");
 
     return lignes.join("\n");
   }
@@ -312,7 +419,7 @@
         const messages = [{ role: "system", content: consigne(o.contexte()) }].concat(memoire());
 
         if (o.surEtat) o.surEtat(tour === 0 ? null : "Consultation du registre…");
-        const rep = await window.aa.ia.conversation({ messages, tools: OUTILS });
+        const rep = await window.aa.ia.conversation({ messages, tools: outilsPour((o.contexte() || {}).profil) });
 
         if (!rep || !rep.ok) {
           // On retire la question : elle sera reposée au moteur local, et la
@@ -341,18 +448,20 @@
           outilsUtilises.push(nom);
 
           let resultat;
-          if (NOMS_ECRITURE.has(nom)) {
+          if (estEcriture(nom, args)) {
             if (o.surEtat) o.surEtat(null);
             const accord = await o.confirmer(nom, args);
             if (!accord) {
               resultat = { refuse: true, message: "L'utilisateur a refusé cette action. Ne la retentez pas ; proposez autre chose ou demandez ce qu'il souhaite." };
             } else {
-              if (o.surEtat) o.surEtat("Enregistrement…");
+              if (o.surEtat) o.surEtat(/^produire_/.test(nom) ? "Rédaction du document…" : nom === "envoyer_courriel" ? "Envoi…" : "Enregistrement…");
               try { resultat = await o.executer(nom, args); }
               catch (e) { resultat = { erreur: true, message: (e && e.message) || String(e) }; }
             }
           } else {
-            if (o.surEtat) o.surEtat(nom === "chercher_offres" ? "Recherche dans le registre…" : "Consultation du registre…");
+            if (o.surEtat) o.surEtat(/^produire_/.test(nom) ? "Rédaction du document…"
+              : nom === "analyser_offre" ? "Analyse de l'offre…"
+              : nom === "chercher_offres" ? "Recherche dans le registre…" : "Consultation du registre…");
             try { resultat = await o.executer(nom, args); }
             catch (e) { resultat = { erreur: true, message: (e && e.message) || String(e) }; }
           }
@@ -381,5 +490,5 @@
     return { envoie, reinitialise, get historique() { return historique.slice(); } };
   }
 
-  window.AAIA = { creerSession, OUTILS, NOMS_ECRITURE, VERSION };
+  window.AAIA = { creerSession, OUTILS, OUTILS_ADMIN, NOMS_ECRITURE, estEcriture, VERSION };
 })();
