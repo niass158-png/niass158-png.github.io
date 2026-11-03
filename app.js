@@ -1702,9 +1702,9 @@
     let st = null;
     try { st = await window.aa.ia.statut(); } catch (_) {}
     IA_DAO.offreId = o.id;
-    if (!st || !st.cleEnregistree) {
+    if (!iaActive(st)) {
       IA_DAO.etat = "erreur";
-      IA_DAO.message = "Aucune clé OpenAI sur ce poste. Renseignez-la dans Paramètres → Assistant IA, puis relancez la lecture.";
+      IA_DAO.message = "Aucune IA réglée sur ce poste. Renseignez une clé OpenAI ou choisissez Ollama dans Paramètres → Assistant IA, puis relancez la lecture.";
     } else {
       IA_DAO.etat = "choix";
     }
@@ -3847,6 +3847,8 @@
   let derniereVeille = null;      // { quand, resume } — alimenté par la veille
   let sessionIA = null;
   let iaEtat = { cleEnregistree: false, modele: "" };
+  /** L'assistant passe-t-il par une IA (OpenAI ou Ollama) ? Sinon : moteur local. */
+  const iaActive = (st) => !!(st && (st.actif !== undefined ? st.actif : st.cleEnregistree));
   let piecesJointes = [];        // documents joints, en attente d'envoi
 
   // ------------------------------------------------------------ contextes
@@ -4392,8 +4394,9 @@
   }
 
   function chatEtat(libelle) {
-    chatSous.textContent = libelle || (iaEtat.cleEnregistree
-      ? "IA connectée — " + (iaEtat.modele || "")
+    chatSous.textContent = libelle || (iaActive(iaEtat)
+      ? (iaEtat.fournisseur === "ollama" ? "IA de ce PC — " : "IA connectée — ") + (iaEtat.modele || "")
+        + (iaEtat.fournisseur === "secours" ? " · secours local" : "")
       : "Hors ligne — vos données ne quittent pas le poste");
     chatSous.classList.toggle("occupe", !!libelle);
   }
@@ -4469,7 +4472,9 @@
       "reseau": "OpenAI injoignable — je réponds avec le moteur local.",
       "delai": "L'IA a mis trop de temps — je réponds avec le moteur local.",
       "panne-fournisseur": "OpenAI est indisponible — je réponds avec le moteur local.",
-      "modele": "Ce modèle n'est pas accessible — je réponds avec le moteur local."
+      "modele": "Ce modèle n'est pas accessible — je réponds avec le moteur local.",
+      "ollama-absent": "L'IA de ce PC (Ollama) ne répond pas — lancez Ollama. Je réponds avec le moteur local.",
+      "ollama": "L'IA de ce PC a renvoyé une erreur — je réponds avec le moteur local."
     }[categorie] || "Bascule sur le moteur local.";
   }
 
@@ -4496,13 +4501,14 @@
     frappeDebut();
 
     try {
-      if (iaEtat.cleEnregistree) {
+      if (iaActive(iaEtat)) {
         if (!sessionIA) sessionIA = creerSessionIA();
         if (sessionIA) {
           const rep = await sessionIA.envoie(question, lisibles);
           frappeFin();
           chatEtat(null);
           if (!rep.erreur) {
+            if (rep.secours) chatAjouteHtml('<p class="wa-avis local">OpenAI indisponible — réponse de l\'IA de ce PC (' + esc(rep.modele || "Ollama") + ").</p>");
             // Les intitulés d'offres viennent de sites que nous ne maîtrisons
             // pas ; ils remontent à l'assistant, qui peut les répéter. Ce qui
             // revient du modèle est donc du texte, jamais du balisage.
@@ -4566,7 +4572,7 @@
     if (!window.aa.ia) return;
     try {
       iaEtat = await window.aa.ia.statut();
-      chatBubble.classList.toggle("ia", !!iaEtat.cleEnregistree);
+      chatBubble.classList.toggle("ia", iaActive(iaEtat));
       if (chatOuvert) chatEtat(null);
     } catch (_) { /* sans importance */ }
   }
@@ -4819,19 +4825,78 @@
       iaEtat = s || iaEtat;
       etat.className = "ia-etat " + (iaEtat.cleEnregistree ? "ok" : "");
       etat.textContent = iaEtat.cleEnregistree
-        ? "Clé enregistrée sur ce poste — modèle " + (iaEtat.modele || "par défaut")
+        ? "Clé enregistrée sur ce poste — modèle " + (iaEtat.modeleOpenAI || iaEtat.modele || "par défaut")
         : "Aucune clé : l'assistant fonctionne avec son moteur local.";
       efface.hidden = !iaEtat.cleEnregistree;
       choixModele.hidden = !iaEtat.cleEnregistree;
       // Au démarrage, on ne connaît pas encore les modèles ouverts au compte :
       // on affiche au moins celui qui sert, plutôt qu'une liste vide.
-      if (iaEtat.cleEnregistree && !choixModele.options.length && iaEtat.modele) {
-        choixModele.innerHTML = '<option value="' + esc(iaEtat.modele) + '">' + esc(iaEtat.modele) + "</option>";
+      const mo = iaEtat.modeleOpenAI || iaEtat.modele;
+      if (iaEtat.cleEnregistree && !choixModele.options.length && mo) {
+        choixModele.innerHTML = '<option value="' + esc(mo) + '">' + esc(mo) + "</option>";
       }
       champ.value = "";
       champ.placeholder = iaEtat.cleEnregistree ? "Clé enregistrée — saisissez-en une autre pour la remplacer" : "sk-…";
-      chatBubble.classList.toggle("ia", !!iaEtat.cleEnregistree);
+      chatBubble.classList.toggle("ia", iaActive(iaEtat));
+      if (fournisseur && iaEtat.fournisseur) fournisseur.value = iaEtat.fournisseur;
       sessionIA = null;   // la prochaine question repart sur la bonne base
+    }
+
+    // ---- IA installée sur ce PC (Ollama) : absente de la version mobile.
+    const blocLocal = $("#ia-local");
+    const fournisseur = $("#ia-fournisseur");
+    const modeleLocal = $("#ia-ollama-modele");
+    const verifier = $("#ia-ollama-verifier");
+    const etatLocal = $("#ia-ollama-etat");
+    const avecOllama = !!(window.aa.ia && window.aa.ia.ollamaStatut);
+    if (blocLocal) blocLocal.hidden = !avecOllama;
+
+    async function verifieOllama(silencieux) {
+      if (!avecOllama) return;
+      verifier.disabled = true; verifier.classList.add("is-busy");
+      etatLocal.className = "ia-etat"; etatLocal.textContent = "Recherche d'Ollama sur ce PC…";
+      let r = null;
+      try { r = await window.aa.ia.ollamaStatut(); } catch (_) { r = null; }
+      verifier.disabled = false; verifier.classList.remove("is-busy");
+      if (!r || !r.disponible) {
+        modeleLocal.innerHTML = "";
+        modeleLocal.hidden = true;
+        etatLocal.className = "ia-etat ko";
+        etatLocal.textContent = (r && r.message) || "Ollama ne répond pas sur ce PC.";
+        return;
+      }
+      if (!r.modeles.length) {
+        modeleLocal.hidden = true;
+        etatLocal.className = "ia-etat ko";
+        etatLocal.textContent = "Ollama répond, mais aucun modèle n'est installé. Dans l'invite de commandes : ollama pull qwen2.5:7b";
+        return;
+      }
+      modeleLocal.hidden = false;
+      modeleLocal.innerHTML = r.modeles.map(m => '<option value="' + esc(m.nom) + '">' + esc(m.nom)
+        + (m.taille ? " · " + esc(m.taille) : "") + (m.outils === false ? " · sans outils" : "") + "</option>").join("");
+      modeleLocal.value = r.modele || r.modeles[0].nom;
+      const choisi = r.modeles.find(m => m.nom === modeleLocal.value);
+      etatLocal.className = "ia-etat ok";
+      etatLocal.textContent = "Ollama actif sur ce PC — " + r.modeles.length + " modèle(s) installé(s)."
+        + (choisi && choisi.outils === false ? " Attention : « " + choisi.nom + " » ne sait pas agir dans le registre (outils) ; préférez qwen2.5 ou llama3.1." : "");
+      affiche(await window.aa.ia.statut());
+      if (!silencieux) toast("Ollama trouvé sur ce PC.", "success", 2500);
+    }
+
+    if (avecOllama) {
+      fournisseur.addEventListener("change", async () => {
+        affiche(await window.aa.ia.ollamaRegler({ fournisseur: fournisseur.value }));
+        if (fournisseur.value !== "openai") verifieOllama(true);
+        toast(fournisseur.value === "openai" ? "L'assistant utilise OpenAI."
+          : fournisseur.value === "secours" ? "OpenAI, avec l'IA de ce PC en secours."
+          : "L'assistant utilise l'IA de ce PC (Ollama).", "success", 3000);
+      });
+      modeleLocal.addEventListener("change", async () => {
+        affiche(await window.aa.ia.ollamaRegler({ modele: modeleLocal.value }));
+        toast("Modèle local : " + modeleLocal.value, "success", 2200);
+      });
+      verifier.addEventListener("click", () => verifieOllama(false));
+      window.aa.ia.statut().then(st => { if (st && st.fournisseur && st.fournisseur !== "openai") verifieOllama(true); }).catch(() => {});
     }
 
     bouton.addEventListener("click", async () => {

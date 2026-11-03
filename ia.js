@@ -327,7 +327,8 @@
         if (!appels.length) {
           allege();
           historique.push({ role: "assistant", content: msg.content || "" });
-          return { texte: msg.content || "", offres: dernieresOffres, outils: outilsUtilises, usage: rep.usage, modele: rep.modele };
+          return { texte: msg.content || "", offres: dernieresOffres, outils: outilsUtilises, usage: rep.usage, modele: rep.modele,
+                   secours: !!rep.secours, fournisseur: rep.fournisseur || "openai" };
         }
 
         // L'appel doit figurer dans l'historique avant son résultat.

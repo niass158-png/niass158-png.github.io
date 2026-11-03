@@ -1304,6 +1304,22 @@
         <p class="ia-etat" id="ia-etat">—</p>
         <button type="button" class="btn small" id="ia-effacer" hidden><svg class="ico"><use href="#i-trash"/></svg>Effacer la clé de ce poste</button>
         <p class="help">La clé reste sur ce poste, chiffrée par Windows, et n'est jamais écrite en clair ni envoyée au registre. Elle vous est propre : la consommation est facturée sur votre compte OpenAI. Quand l'IA est active, vos questions et les extraits du registre nécessaires à la réponse sont transmis à OpenAI.</p>
+        <div class="ia-local" id="ia-local">
+          <h4>IA installée sur ce PC (Ollama)</h4>
+          <p class="help">Une IA qui tourne sur l'ordinateur lui-même : rien ne sort du poste, rien n'est facturé. Plus lente et moins fine qu'OpenAI, elle prend le relais quand OpenAI n'est pas joignable (crédit épuisé, coupure Internet).</p>
+          <div class="field"><label for="ia-fournisseur">IA utilisée par l'assistant</label>
+            <select id="ia-fournisseur">
+              <option value="openai">OpenAI seulement</option>
+              <option value="secours">OpenAI, avec secours sur ce PC (Ollama)</option>
+              <option value="ollama">Seulement l'IA de ce PC (Ollama)</option>
+            </select>
+          </div>
+          <div class="ia-ligne">
+            <select id="ia-ollama-modele" aria-label="Modèle local"></select>
+            <button type="button" class="btn small" id="ia-ollama-verifier"><svg class="ico"><use href="#i-refresh"/></svg>Vérifier Ollama</button>
+          </div>
+          <p class="ia-etat" id="ia-ollama-etat">—</p>
+        </div>
       </div>
       <div class="settings-section">
         <h3>Messagerie — envoi des demandes d'arbitrage</h3>

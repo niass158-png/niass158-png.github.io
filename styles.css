@@ -1693,3 +1693,10 @@ body[data-cartes="ardoise"] .card .pert{ background:rgba(255,255,255,.08); borde
 .maj-carte[data-etat="prete"] .maj-icone{ background:var(--aa-dark); color:#fff; }
 .maj-carte[data-etat="erreur"] .maj-icone{ background:var(--crit-50); color:var(--crit); }
 .maj-carte[data-etat="indisponible"] .maj-icone{ background:var(--warn-50); color:var(--warn); }
+
+/* IA installée sur le PC (Ollama), dans les paramètres */
+.ia-local{ margin-top:14px; padding-top:12px; border-top:1px dashed var(--line-strong); }
+.ia-local h4{ margin:0 0 4px; font-size:.92rem; color:var(--ink); }
+.ia-local select{ height:36px; padding:0 10px; border-radius:var(--radius-sm); border:1px solid var(--line-strong); background:var(--bg); max-width:100%; }
+.ia-local .ia-ligne select{ flex:1; min-width:0; }
+.wa-avis.local{ color:var(--aa-dark); }
