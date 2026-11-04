@@ -50,7 +50,7 @@
     sans_echeance: { type: "boolean", description: "Ne garder que les offres sans date limite renseignée." },
     decision: { type: "string", enum: ["GO", "NO GO", "Non arbitrée"], description: "Arbitrage GO / NO GO de l'offre." },
     pertinence: { type: "string", enum: ["forte", "moyenne", "faible"], description: "Pertinence pour A&A, calculée d'après les 65 missions de référence du groupe." },
-    cloturees: { type: "boolean", description: "Ne garder que les offres dont la date limite est passée et qui ne sont ni tranchées GO, ni déposées, ni conclues : les candidates à l'archivage." },
+    cloturees: { type: "boolean", description: "Ne garder que les offres dont la date limite est passée sans dépôt noté (en pratique, des offres GO à régulariser : sans dépôt noté 7 jours après la date limite, elles partent en corbeille)." },
     nouvelles_depuis_jours: { type: "integer", description: "Ne garder que les offres entrées au registre depuis ce nombre de jours." }
   };
 
@@ -103,7 +103,7 @@
     ["analyser_offre", "Dossier d'analyse complet d'une offre, pour qualifier un GO / NO GO ou préparer la réponse : pertinence pour A&A et missions comparables déjà réalisées, verdict d'éligibilité (exigences du DAO jugées contre le profil d'A&A), échéance, documents (TDR…), plan de travail, avis et notes de l'équipe.",
       { type: "object", properties: { offre_id: { type: "string" } }, required: ["offre_id"] }],
 
-    ["briefing", "Point de situation du registre : nouvelles offres pertinentes, échéances proches, offres GO sans plan de travail, tâches en retard, relances dues, offres en attente de résultat, offres pertinentes non arbitrées, dernière veille. À utiliser pour « où en est-on », « quoi faire aujourd'hui », « briefing ».",
+    ["briefing", "Point de situation du registre : nouvelles offres pertinentes, échéances proches, offres GO sans plan de travail, offres GO échues sans dépôt noté, tâches en retard, relances dues, offres en attente de résultat, offres pertinentes non arbitrées, dernière veille. À utiliser pour « où en est-on », « quoi faire aujourd'hui », « briefing ».",
       { type: "object", properties: { depuis_jours: { type: "integer", description: "Fenêtre des « nouvelles » offres, en jours (défaut 3)." } } }],
 
     ["chercher_references", "Cherche dans les 65 missions de référence d'A&A (client, intitulé, année, pays) celles à citer dans une offre technique.",
@@ -306,7 +306,8 @@
     lignes.push("");
     lignes.push("VOUS AGISSEZ DANS LE LOGICIEL COMME UN MEMBRE DE L'ÉQUIPE");
     lignes.push("- Vous pouvez créer et corriger des offres (modifier_offre), changer leur statut, les assigner, noter, planifier, renseigner le suivi, classer des documents, envoyer des courriels.");
-    lignes.push("- Vous pouvez archiver en corbeille (mettre_en_corbeille) les offres clôturées non traitées, hors sujet ou en doublon, et les restaurer. Pour un nettoyage, cherchez d'abord (filtre cloturees, par exemple), annoncez combien et lesquelles, puis archivez en une seule fois avec un motif clair. N'archivez jamais une offre tranchée GO, déposée ou conclue sans demande explicite. La suppression définitive se fait à la main, dans la corbeille.");
+    lignes.push("- Rangement automatique : le registre ne montre que les offres où l'on peut encore agir. Une offre clôturée sans dépôt part en corbeille dès le lendemain de sa date limite, un NO GO aussitôt, un GO sans dépôt noté 7 jours après la date limite ; les offres déposées vont dans « En attente » puis « Soumissions » ; la corbeille s'efface d'elle-même après 90 jours (sauf dossier déposé).");
+    lignes.push("- Vous pouvez en plus archiver en corbeille (mettre_en_corbeille) des offres hors sujet ou en doublon, et restaurer (restaurer_offres) une offre partie à tort — par exemple un GO qui a bien été déposé : restaurez-la puis notez le dépôt (mettre_a_jour_suivi). Annoncez combien et lesquelles avant d'archiver, avec un motif clair. N'archivez jamais une offre déposée sans demande explicite.");
     lignes.push("- Chaque action qui modifie le registre est montrée à l'utilisateur, qui confirme ou annule : proposez franchement, il garde la main. S'il refuse, n'insistez pas.");
     lignes.push("");
     lignes.push("VOTRE INTERLOCUTEUR");

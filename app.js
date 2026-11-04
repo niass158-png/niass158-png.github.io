@@ -935,7 +935,10 @@
   // qualifier, ni à arbitrer, ni à préparer — et vivent dans l'onglet
   // « En attente de décision » (règle unique : AA.metier.estEnAttente).
   // ------------------------------------------------------------------
-  const dansRegistre = (o) => !AA.metier.estEnAttente(o);
+  // Depuis la 1.20 : les dossiers déposés et conclus en sortent aussi
+  // (onglets « En attente » et « Soumissions »), et les offres closes sans
+  // suite partent en corbeille dès le lendemain (AA.metier.estAuRegistre).
+  const dansRegistre = (o) => AA.metier.estAuRegistre(o);
   function registre() { return OFFERS.filter(dansRegistre); }
 
   /** Toutes les offres qui répondent à la recherche, attente comprise. */
@@ -2225,9 +2228,17 @@
     const toutes = offresEnAttente();
     const q = $("#search").value.trim();
     const trouvees = q ? rechercheBrute().filter(AA.metier.estEnAttente) : [];
-    if (q && trouvees.length) {
-      note.innerHTML = `${icon("hourglass")}<span><b>${plural(trouvees.length, "offre correspondante est", "offres correspondantes sont")}</b> en attente de décision : ${trouvees.length > 1 ? "elles ne s'affichent" : "elle ne s'affiche"} plus ici.</span>
-        <button type="button" class="link-btn" data-voir-attente="recherche">Les voir →</button>`;
+    // Une recherche qui ne trouve rien ici a peut-être sa réponse ailleurs :
+    // dossiers conclus (Soumissions) ou offres rangées en corbeille.
+    const conclues = q ? rechercheBrute().filter(o => AA.metier.estSoumise(o) && !AA.metier.estEnAttente(o)) : [];
+    const aiguille = q ? sansAccent(q) : "";
+    const enCorbeille = q ? CORBEILLE.filter(o => sansAccent([o.titre, o.emetteur].join(" ")).includes(aiguille)) : [];
+    if (q && (trouvees.length || conclues.length || enCorbeille.length)) {
+      const bouts = [];
+      if (trouvees.length) bouts.push(`<b>${plural(trouvees.length, "offre", "offres")}</b> en attente de décision <button type="button" class="link-btn" data-voir-attente="recherche">voir →</button>`);
+      if (conclues.length) bouts.push(`<b>${plural(conclues.length, "dossier conclu", "dossiers conclus")}</b> dans Soumissions <button type="button" class="link-btn" data-voir-onglet="soumissions">voir →</button>`);
+      if (enCorbeille.length) bouts.push(`<b>${plural(enCorbeille.length, "offre", "offres")}</b> en corbeille <button type="button" class="link-btn" data-voir-onglet="corbeille">voir →</button>`);
+      note.innerHTML = `${icon("hourglass")}<span>Hors du registre, cette recherche trouve aussi : ${bouts.join(" · ")}</span>`;
       note.hidden = false;
     } else if (toutes.length) {
       const relance = toutes.filter(o => AA.metier.attente(o).aRelancer).length;
@@ -2239,6 +2250,18 @@
     }
   }
 
+  document.addEventListener("click", (e) => {
+    const v = e.target.closest("[data-voir-onglet]");
+    if (v) {
+      const q = $("#search").value.trim();
+      if (v.dataset.voirOnglet === "corbeille") {
+        corbeilleFiltre.texte = q;
+        const champ = $("#corbeille-recherche"); if (champ) champ.value = q;
+      }
+      setTab(v.dataset.voirOnglet);
+      return;
+    }
+  });
   document.addEventListener("click", (e) => {
     const b = e.target.closest("[data-voir-attente]");
     if (!b) return;
@@ -3058,9 +3081,13 @@
       decision_par: whoami || "Anonyme",
       decision_le: new Date().toISOString()
     };
-    if (decision === "NO GO" && o && !["Gagnée", "Perdue"].includes(o.statut_traitement)) patch.statut_traitement = "Perdue";
     if (decision === "GO" && o && o.statut_traitement === "Nouvelle") patch.statut_traitement = "En cours";
-    if (await saveField(currentDetailId, patch)) toast("Décision enregistrée : " + decision + ".", "success");
+    if (!await saveField(currentDetailId, patch)) return;
+    if (decision === "NO GO") {
+      toast("NO GO enregistré : l'offre quitte le registre pour la corbeille, d'où elle se restaure d'un clic.", "success", 6000);
+      detailDlg.close();
+      archiveObsoletes();
+    } else toast("Décision enregistrée : " + decision + ".", "success");
   }
   $("#dlg-go").addEventListener("click", () => trancher("GO"));
   $("#dlg-nogo").addEventListener("click", () => trancher("NO GO"));
@@ -3916,7 +3943,7 @@
         if ((n === "hors" ? "faible" : n) !== a.pertinence) return false;
       }
       if (a.cloturees) {
-        if (!o.date_limite || o.date_limite >= aujourd || estProtegee(o)) return false;
+        if (!o.date_limite || o.date_limite >= aujourd || AA.metier.estSoumise(o)) return false;
       }
       if (typeof a.nouvelles_depuis_jours === "number") {
         if (!o.created_at || Date.parse(o.created_at) < Date.now() - a.nouvelles_depuis_jours * 86400000) return false;
@@ -4287,7 +4314,9 @@
     const relances = attente.filter(o => AA.metier.attente(o).aRelancer);
     const nonArbitrees = ouvertes.filter(o => !o.decision && o.date_limite && o.date_limite >= auj && pertinenceDe(o).niveau === "forte")
       .sort(compareEcheance);
-    const cloturees = OFFERS.filter(o => o.date_limite && o.date_limite < auj && !estProtegee(o));
+    // GO dont la date limite est passée sans dépôt noté : à régulariser avant
+    // que l'offre ne parte en corbeille.
+    const goEchus = OFFERS.filter(o => o.decision === "GO" && o.date_limite && o.date_limite < auj && !AA.metier.estSoumise(o));
     const court = (o) => ({ id: o.id, titre: o.titre, emetteur: o.emetteur, date_limite: o.date_limite || null,
       jours_restants: o.date_limite ? urgency(o.date_limite).days : null, pertinence: pertinenceDe(o).niveau, decision: o.decision || null });
     return {
@@ -4299,7 +4328,8 @@
       en_attente_de_resultat: attente.length,
       relances_dues: { total: relances.length, offres: relances.slice(0, 8).map(o => Object.assign(court(o), { attente_jours: AA.metier.attente(o).jours, derniere_relance: o.date_relance || null })) },
       pertinentes_non_arbitrees: { total: nonArbitrees.length, offres: nonArbitrees.slice(0, 8).map(court) },
-      cloturees_a_archiver: cloturees.length,
+      go_depot_a_noter: { total: goEchus.length, offres: goEchus.slice(0, 8).map(court),
+        a_savoir: "Sans dépôt noté " + AA.metier.JOURS_GRACE_GO + " jours après la date limite, une offre GO part en corbeille." },
       derniere_veille: derniereVeille || null,
       __fiches: echeances.slice(0, 3).concat(nouvellesPertinentes.slice(0, 3))
     };
@@ -4574,10 +4604,10 @@
         if (!["GO", "NO GO"].includes(a.decision)) return { erreur: true, message: "Décision attendue : GO ou NO GO." };
         const patch = { decision: a.decision, decision_par: whoami || "Anonyme", decision_le: new Date().toISOString() };
         if (a.motif) patch.decision_motif = String(a.motif).slice(0, 500);
-        if (a.decision === "NO GO" && !["Gagnée", "Perdue"].includes(o.statut_traitement)) patch.statut_traitement = "Perdue";
         if (a.decision === "GO" && o.statut_traitement === "Nouvelle") patch.statut_traitement = "En cours";
         const ok = await saveField(o.id, patch);
-        return ok ? { ok: true, message: "Décision enregistrée : " + a.decision + "." } : { erreur: true, message: "Enregistrement refusé." };
+        if (ok && a.decision === "NO GO") archiveObsoletes();
+        return ok ? { ok: true, message: "Décision enregistrée : " + a.decision + "." + (a.decision === "NO GO" ? " L'offre part en corbeille (restaurable)." : "") } : { erreur: true, message: "Enregistrement refusé." };
       }
 
       default:
@@ -4987,7 +5017,7 @@
       if (dernier === auj) return;
       const ecart = dernier ? Math.round((Date.parse(auj) - Date.parse(dernier)) / 86400000) : 3;
       const p = pointDuJour(Math.min(7, Math.max(1, ecart || 1)));
-      const notable = p.nouvelles_pertinentes.total + p.echeances_10_jours.total + p.go_sans_plan.total
+      const notable = p.nouvelles_pertinentes.total + p.echeances_10_jours.total + p.go_sans_plan.total + p.go_depot_a_noter.total
         + p.taches_en_retard.total + p.relances_dues.total + p.pertinentes_non_arbitrees.total;
       if (!notable) { setPref("briefing-jour", auj); return; }
       briefingEnAttente = p;
@@ -5009,7 +5039,7 @@
     const l = ["Point du jour : quoi faire en priorité ?", "Qualifie GO / NO GO les offres pertinentes non arbitrées"];
     if (OFFERS.some(o => o.decision === "GO" && phaseGo(o) === "prepa" && !tachesDe(o.id).length)) l.push("Prépare le rétroplanning des offres GO sans plan");
     if (AA.metier.enAttente(OFFERS).some(o => AA.metier.attente(o).aRelancer)) l.push("Rédige les relances des offres en attente");
-    l.push("Propose l'archivage des offres clôturées non traitées");
+    l.push("Que contient la corbeille cette semaine ?");
     return l.slice(0, 4);
   }
 
@@ -5026,7 +5056,7 @@
     if (p.go_sans_plan.total) li.push(n(p.go_sans_plan.total, "offre GO n'a", "offres GO n'ont") + " pas de plan de travail");
     if (p.taches_en_retard.total) li.push(n(p.taches_en_retard.total, "étape de préparation est", "étapes de préparation sont") + " en retard");
     if (p.relances_dues.total) li.push(n(p.relances_dues.total, "offre déposée est", "offres déposées sont") + " à relancer");
-    if (p.cloturees_a_archiver) li.push(n(p.cloturees_a_archiver, "offre clôturée non traitée peut", "offres clôturées non traitées peuvent") + " partir en corbeille");
+    if (p.go_depot_a_noter.total) li.push(n(p.go_depot_a_noter.total, "offre GO a passé", "offres GO ont passé") + " sa date limite sans dépôt noté");
     chatDit("lui", "<b>Point du jour</b><ul>" + li.map(x => "<li>" + x + "</li>").join("") + "</ul>");
     chatFiches(p.__fiches.filter((o, i, t) => t.indexOf(o) === i).slice(0, 5), 0);
     if (iaActive(iaEtat)) {
@@ -5034,7 +5064,7 @@
       if (p.pertinentes_non_arbitrees.total || p.nouvelles_pertinentes.total) props.push("Qualifie GO / NO GO les offres pertinentes non arbitrées");
       if (p.go_sans_plan.total) props.push("Prépare le rétroplanning des offres GO sans plan");
       if (p.relances_dues.total) props.push("Rédige les relances des offres en attente");
-      if (p.cloturees_a_archiver) props.push("Propose l'archivage des offres clôturées");
+      if (p.go_depot_a_noter.total) props.push("Quelles offres GO échues faut-il noter comme déposées ?");
       chatSuggestions(props.slice(0, 4));
     }
     chatFinDeFil();
@@ -5420,53 +5450,83 @@
   // elle court, elle se clôture, puis elle devient obsolète. Le registre
   // affiche cette trajectoire au lieu de laisser l'ancien s'empiler.
   // ======================================================================
-  const JOURS_OBSOLESCENCE = 30;
-
   const CYCLES = {
     active:   { label: "En cours", cls: "cy-active",  aide: "Échéance à venir" },
-    close:    { label: "Clôturée", cls: "cy-close",   aide: "Date limite passée, dossier encore vivant" },
-    obsolete: { label: "Obsolète", cls: "cy-obsolete", aide: "Dépassée de plus de " + JOURS_OBSOLESCENCE + " jours" },
+    close:    { label: "Clôturée", cls: "cy-close",   aide: "Date limite passée : notez le dépôt, sinon l'offre part en corbeille" },
+    obsolete: { label: "Obsolète", cls: "cy-obsolete", aide: "Clôturée sans dépôt : rangée en corbeille" },
     sans:     { label: "Sans échéance", cls: "cy-sans", aide: "Aucune date limite connue" },
     reglee:   { label: "Réglée", cls: "cy-reglee",    aide: "Gagnée, perdue ou déposée" }
   };
 
-  /** Une offre protégée ne part jamais d'elle-même à la corbeille. */
+  /** Une offre protégée ne part jamais dans un effacement groupé. */
   function estProtegee(o) {
-    return o.decision === "GO"
-      || !!o.date_soumission
-      || ["Soumise", "Gagnée", "Perdue"].includes(o.statut_traitement);
+    return o.decision === "GO" || AA.metier.estSoumise(o);
   }
 
   function cycleVie(o) {
-    if (["Gagnée", "Perdue"].includes(o.statut_traitement)) return CYCLES.reglee;
+    if (AA.metier.estSoumise(o)) return CYCLES.reglee;
     const u = urgency(o.date_limite);
     if (u.key === "none") return CYCLES.sans;
     if (u.days >= 0) return CYCLES.active;
-    if (u.days < -JOURS_OBSOLESCENCE && !estProtegee(o)) return CYCLES.obsolete;
+    if (AA.metier.motifArchivage(o)) return CYCLES.obsolete;
     return CYCLES.close;
   }
 
   /**
-   * Bascule en corbeille les offres périmées depuis plus de trente jours.
-   * Les offres tranchées GO, déposées ou déjà conclues sont épargnées : ce
-   * sont des dossiers, pas des annonces expirées. L'opération est écrite en
-   * une seule requête, et se répète sans dommage si deux postes la lancent.
+   * Rangement automatique (règles : AA.metier.motifArchivage). Le lendemain
+   * de sa date limite, une offre où personne n'est allé part en corbeille ;
+   * de même une offre tranchée NO GO, et une offre GO dont le dépôt n'a pas
+   * été noté une semaine après la date limite. Une requête par motif, sans
+   * dommage si deux postes la lancent en même temps. Rejoué à chaque
+   * chargement du registre : une offre tranchée NO GO part aussitôt.
    */
-  let archivageFait = false;
+  let archivageEnCours = false;
   async function archiveObsoletes() {
-    if (!sb || archivageFait) return 0;
-    archivageFait = true;
-    const candidats = OFFERS.filter(o => cycleVie(o) === CYCLES.obsolete);
-    if (!candidats.length) return 0;
-    const { error } = await sb.from("offers").update(signe({
-      supprime_le: new Date().toISOString(),
-      supprime_par: "Archivage automatique",
-      motif_suppression: "Date limite dépassée de plus de " + JOURS_OBSOLESCENCE + " jours"
-    }, "Archivage automatique")).in("id", candidats.map(o => o.id));
-    if (error) { archivageFait = false; return 0; }
-    toast(plural(candidats.length, "offre obsolète déplacée", "offres obsolètes déplacées") + " en corbeille.", "info", 6000);
-    await loadOffers();
-    return candidats.length;
+    if (!sb || archivageEnCours) return 0;
+    const parMotif = new Map();
+    OFFERS.forEach(o => {
+      const m = AA.metier.motifArchivage(o);
+      if (!m) return;
+      if (!parMotif.has(m)) parMotif.set(m, []);
+      parMotif.get(m).push(o.id);
+    });
+    if (!parMotif.size) { purgeCorbeille(); return 0; }
+    archivageEnCours = true;
+    let n = 0;
+    try {
+      for (const [motif, ids] of parMotif) {
+        for (let i = 0; i < ids.length; i += 100) {
+          const lot = ids.slice(i, i + 100);
+          const { error } = await sb.from("offers").update(signe({
+            supprime_le: new Date().toISOString(),
+            supprime_par: "Archivage automatique",
+            motif_suppression: motif
+          }, "Archivage automatique")).in("id", lot).is("supprime_le", null);
+          if (error) return n;
+          n += lot.length;
+        }
+      }
+    } finally { archivageEnCours = false; }
+    if (n) {
+      toast(plural(n, "offre close rangée", "offres closes rangées") + " en corbeille (clôturées sans suite, NO GO) — restaurables à tout moment.", "info", 6000);
+      await loadOffers();
+    }
+    return n;
+  }
+
+  /**
+   * Effacement automatique des offres en corbeille depuis plus de 90 jours,
+   * documents compris. La base ne l'accepte que d'un administrateur : c'est
+   * donc son poste qui s'en charge, une fois par ouverture. Les dossiers
+   * réellement déposés ne partent jamais d'eux-mêmes.
+   */
+  let purgeFaite = false;
+  async function purgeCorbeille() {
+    if (purgeFaite || !sb || !estAdmin()) return 0;
+    purgeFaite = true;
+    const ids = CORBEILLE.filter(o => AA.metier.aPurger(o)).map(o => o.id);
+    if (!ids.length) return 0;
+    return effaceDefinitivement(ids, true);
   }
 
   // ======================================================================
@@ -5651,7 +5711,7 @@
     CORBEILLE.forEach(o => compte[familleCorbeille(o)]++);
     $("#kpis-corbeille").innerHTML = [
       { key: "c-all", label: "Offres en corbeille", value: CORBEILLE.length, hint: "Restaurables tant qu'elles n'ont pas été effacées", ic: "trash", teinte: "dark" },
-      { key: "c-auto", label: "Archivées automatiquement", value: compte.auto, hint: "Périmées depuis plus de " + JOURS_OBSOLESCENCE + " jours", ic: "clock", teinte: "sky" },
+      { key: "c-auto", label: "Rangées automatiquement", value: compte.auto, hint: "Clôturées sans suite, NO GO, GO non déposés — effacées après " + AA.metier.JOURS_CORBEILLE + " jours", ic: "clock", teinte: "sky" },
       { key: "c-net", label: "Nettoyages et audits", value: compte.nettoyage, hint: "Hors sujet, closes, doublons écartés en lot", ic: "radar", teinte: "teal" },
       { key: "c-man", label: "Supprimées à la main", value: compte.manuel, hint: "Depuis la fiche d'une offre", ic: "user", teinte: "blue" }
     ].map(kpiTile).join("");

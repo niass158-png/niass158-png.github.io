@@ -32,9 +32,10 @@
    * chacune à leur façon.
    */
   function estSoumise(o) {
-    return !!o.date_soumission
-      || !!(o.resultat && String(o.resultat).trim())
-      || STATUTS_DEPOSES.includes(o.statut_traitement);
+    if (o.date_soumission || (o.resultat && String(o.resultat).trim())) return true;
+    // Un NO GO passait autrefois l'offre en « Perdue » : ce n'est pas un dépôt.
+    if (o.decision === "NO GO" && o.statut_traitement === "Perdue") return false;
+    return STATUTS_DEPOSES.includes(o.statut_traitement);
   }
 
   function estGagnee(o) {
@@ -169,7 +170,50 @@
       .sort((a, b) => (attente(b, aujourdhui).jours || 0) - (attente(a, aujourdhui).jours || 0));
   }
 
+  // ------------------------------------------------ rangement automatique
+  /**
+   * Le registre ne garde que ce sur quoi on peut encore agir. Une offre
+   * vivante en sort :
+   *   · déposée (avec ou sans résultat) → onglets « En attente » et « Soumissions » ;
+   *   · ou bien rangée en corbeille, avec un motif, le lendemain de sa date
+   *     limite si personne n'y est allé, dès qu'elle est tranchée NO GO, ou
+   *     JOURS_GRACE_GO jours après la date limite si elle était GO sans que
+   *     le dépôt ait été noté (le temps de le noter).
+   * Renvoie le motif de mise en corbeille, ou null si l'offre reste.
+   */
+  const JOURS_GRACE_GO = 7;
+  const JOURS_CORBEILLE = 90;
+
+  function motifArchivage(o, aujourdhui) {
+    if (!o || o.supprime_le || estSoumise(o)) return null;
+    if (o.decision === "NO GO") return "NO GO" + (o.decision_motif ? " — " + String(o.decision_motif).slice(0, 150) : "");
+    const auj = jourIso(aujourdhui || new Date());
+    const limite = String(o.date_limite || "").slice(0, 10);
+    if (!limite || limite >= auj) return null;
+    if (o.decision === "GO") {
+      const retard = Math.round((Date.parse(auj + "T00:00:00") - Date.parse(limite + "T00:00:00")) / JOUR);
+      return retard > JOURS_GRACE_GO ? "GO non déposé — date limite dépassée de plus de " + JOURS_GRACE_GO + " jours" : null;
+    }
+    return "Clôturée sans suite";
+  }
+
+  /** Offre qui reste au registre : ni déposée, ni à ranger en corbeille. */
+  function estAuRegistre(o, aujourdhui) {
+    return !!o && !o.supprime_le && !estSoumise(o) && !motifArchivage(o, aujourdhui);
+  }
+
+  /**
+   * Effacement automatique : en corbeille depuis plus de JOURS_CORBEILLE
+   * jours. Les dossiers réellement déposés ne partent jamais d'eux-mêmes.
+   */
+  function aPurger(o, maintenant) {
+    if (!o || !o.supprime_le || estSoumise(o)) return false;
+    const t = Date.parse(o.supprime_le);
+    return Number.isFinite(t) && t < (maintenant || Date.now()) - JOURS_CORBEILLE * JOUR;
+  }
+
   AA.metier = {
+    JOURS_GRACE_GO, JOURS_CORBEILLE, motifArchivage, estAuRegistre, aPurger,
     STATUTS_DEPOSES,
     estSoumise, estGagnee, estPerdue, estEngagee, estArbitree,
     soumissions, bilanSoumissions, bilanFiliale,
