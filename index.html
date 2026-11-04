@@ -1173,20 +1173,48 @@
       <p>Veille et suivi des opportunités — accès réservé à l'équipe.</p>
     </div>
     <div class="modal-body">
-      <div class="field">
-        <label for="login-nom">Prénom et nom</label>
-        <input id="login-nom" name="whoami" required placeholder="ex : Aliou Niass" autocomplete="name">
-        <p class="help">Signe vos notes, vos avis d'arbitrage et les offres que vous prenez en charge.</p>
+      <div class="login-onglets" role="tablist">
+        <button type="button" class="is-on" data-login-mode="compte">Mon compte</button>
+        <button type="button" data-login-mode="activation">J'ai un code</button>
+        <button type="button" data-login-mode="equipe">Code d'équipe</button>
       </div>
-      <div class="field">
-        <label for="login-code">Code d'équipe</label>
-        <input id="login-code" name="code" required type="password" placeholder="Code communiqué par l'administrateur" autocomplete="current-password">
-        <p class="help">Saisi une seule fois : Windows le conserve chiffré sur ce poste.</p>
+
+      <div class="login-mode" data-mode="compte">
+        <div class="field">
+          <label for="login-email">Adresse e-mail</label>
+          <input id="login-email" type="email" placeholder="prenom.nom@aastrategy.co" autocomplete="username">
+        </div>
+        <div class="field">
+          <label for="login-mdp">Mot de passe</label>
+          <input id="login-mdp" type="password" placeholder="Votre mot de passe personnel" autocomplete="current-password">
+        </div>
+        <p class="help"><button type="button" class="link-btn" id="login-oubli">Mot de passe oublié ?</button> · Première connexion : onglet « J'ai un code ».</p>
       </div>
+
+      <div class="login-mode" data-mode="activation" hidden>
+        <p class="help">L'administrateur vous a transmis un code à 6 chiffres (invitation, ou mot de passe oublié). Saisissez-le avec votre e-mail, puis choisissez votre mot de passe.</p>
+        <div class="field"><label for="login-act-email">Adresse e-mail</label><input id="login-act-email" type="email" autocomplete="username"></div>
+        <div class="field"><label for="login-act-code">Code reçu</label><input id="login-act-code" inputmode="numeric" maxlength="10" placeholder="123456" autocomplete="one-time-code"></div>
+        <div class="field"><label for="login-act-mdp">Nouveau mot de passe</label><input id="login-act-mdp" type="password" autocomplete="new-password" placeholder="8 caractères au moins"></div>
+        <div class="field"><label for="login-act-mdp2">Confirmez le mot de passe</label><input id="login-act-mdp2" type="password" autocomplete="new-password"></div>
+      </div>
+
+      <div class="login-mode" data-mode="equipe" hidden>
+        <p class="help">Ancienne méthode, le temps que chacun reçoive son compte personnel.</p>
+        <div class="field">
+          <label for="login-nom">Prénom et nom</label>
+          <input id="login-nom" name="whoami" placeholder="ex : Aliou Niass" autocomplete="name">
+        </div>
+        <div class="field">
+          <label for="login-code">Code d'équipe</label>
+          <input id="login-code" name="code" type="password" placeholder="Code communiqué par l'administrateur" autocomplete="off">
+        </div>
+      </div>
+      <p class="login-info" id="login-info" hidden></p>
       <p class="login-error" id="login-error" hidden></p>
     </div>
     <div class="modal-foot">
-      <button type="submit" class="btn primary" id="login-submit"><svg class="ico"><use href="#i-check"/></svg>Se connecter</button>
+      <button type="submit" class="btn primary" id="login-submit"><svg class="ico"><use href="#i-check"/></svg><span id="login-submit-txt">Se connecter</span></button>
     </div>
   </form>
 </dialog>
@@ -1259,7 +1287,7 @@
           </div>
           <p class="help" id="maj-derniere"></p>
         </div>
-        <p class="help">Le logiciel vérifie seul à l'ouverture, puis toutes les six heures. Une nouvelle version se télécharge en arrière-plan, sans interrompre le travail ; elle s'installe quand vous cliquez « Redémarrer et installer », ou à la prochaine fermeture. Vos réglages, votre code d'équipe et les données du registre ne sont pas touchés.</p>
+        <p class="help">Le logiciel vérifie seul à l'ouverture, puis toutes les six heures. Une nouvelle version se télécharge en arrière-plan, sans interrompre le travail ; elle s'installe quand vous cliquez « Redémarrer et installer », ou à la prochaine fermeture. Vos réglages, votre connexion et les données du registre ne sont pas touchés.</p>
       </div>
       <div class="settings-section">
         <h3>Profil d'A&amp;A</h3>
@@ -1373,13 +1401,38 @@
         <p class="help" id="alertes-derniere"></p>
         <p class="help">Pour parcourir le site vous-même et importer une page ou joindre des TDR : bouton « Development AID · Sénégal » de la Veille. Le mot de passe reste sur ce poste, chiffré par Windows, et n'est jamais envoyé au registre. Microsoft 365 n'accepte plus ce type de connexion : utilisez une adresse Gmail, Zoho ou de votre hébergeur.</p>
       </div>
+      <div class="settings-section" id="reglages-equipe">
+        <h3>Équipe</h3>
+        <p class="help" id="equipe-aide">Chaque membre se connecte avec son e-mail et son propre mot de passe.</p>
+        <div class="equipe-liste" id="equipe-liste"><p class="muted-line">Chargement…</p></div>
+        <div class="equipe-invite" id="equipe-invite" hidden>
+          <h4>Ajouter un membre</h4>
+          <div class="equipe-grille">
+            <input id="invite-nom" placeholder="Prénom et nom" autocomplete="off">
+            <input id="invite-email" type="email" placeholder="prenom.nom@aastrategy.co" autocomplete="off">
+            <select id="invite-role"><option value="contributeur">Équipe (contributeur)</option><option value="administrateur">Administrateur</option></select>
+            <button type="button" class="btn small primary" id="invite-btn">Inviter</button>
+          </div>
+        </div>
+        <div class="equipe-code" id="equipe-code" hidden></div>
+      </div>
       <div class="settings-section">
         <h3>Accès au registre</h3>
         <div class="acces-row">
           <span class="acces-profil" id="acces-profil">—</span>
           <button type="button" class="btn small" id="logout-btn"><svg class="ico"><use href="#i-user"/></svg>Se déconnecter de ce poste</button>
         </div>
-        <p class="help">La déconnexion efface le code d'équipe conservé sur ce poste ; les données du registre ne sont pas touchées.</p>
+        <div class="mdp-change" id="mdp-change" hidden>
+          <details>
+            <summary>Changer mon mot de passe</summary>
+            <div class="equipe-grille">
+              <input id="mdp-nouveau" type="password" placeholder="Nouveau mot de passe (8 caractères au moins)" autocomplete="new-password">
+              <input id="mdp-confirme" type="password" placeholder="Confirmez" autocomplete="new-password">
+              <button type="button" class="btn small primary" id="mdp-btn">Enregistrer</button>
+            </div>
+          </details>
+        </div>
+        <p class="help">La déconnexion ferme votre session sur ce poste ; les données du registre ne sont pas touchées.</p>
         <details class="avance">
           <summary>Réglages avancés</summary>
           <div class="field"><label>Adresse du registre</label><input required name="supabaseUrl" placeholder="https://xxxxxxxx.supabase.co"></div>
