@@ -208,7 +208,7 @@
     const btn = $("#sync-btn");
     if (btn) btn.classList.add("is-busy");
     try {
-      await loadOffers();
+      await loadOffers({ complet: true });
       if (currentDetailId && detailDlg.open) {
         loadNotes(currentDetailId); loadVotes(currentDetailId); loadFiles(currentDetailId); loadJournal(currentDetailId);
       }
@@ -235,7 +235,11 @@
 
   /** Statut de la liaison en direct, reçu de Supabase. */
   function surEtatTempsReel(status) {
-    if (status === "SUBSCRIBED") { SYNC.tempsReel = "ok"; arreteReleve(); }
+    if (status === "SUBSCRIBED") {
+      // Liaison renouée après une coupure : on a pu manquer des changements.
+      if (SYNC.tempsReel === "coupe") { annexesChargees = false; scheduleReload(); }
+      SYNC.tempsReel = "ok"; arreteReleve();
+    }
     else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") { SYNC.tempsReel = "coupe"; demarreReleve(); }
     majSync();
   }
@@ -702,6 +706,7 @@
   $("#logout-btn").addEventListener("click", async () => {
     await window.aa.forgetTeamCode();
     try { await sb.auth.signOut(); } catch (_) { /* sans importance */ }
+    effaceCopieLocale();
     settingsDlg.close();
     OFFERS = []; OPPS = []; SOURCES = []; CONTACTS = [];
     render();
@@ -757,7 +762,7 @@
           await window.aa.rememberTeamCode(null, profil);
           appliqueProfil();
           renderUser();
-          showState("loading", "Chargement du registre…");
+          if (!afficheCopieLocale()) showState("loading", "Chargement du registre…");
           loadOffers();
           subscribeRealtime();
           rejoindrePresence();
@@ -769,23 +774,28 @@
     // Reconnexion silencieuse si le poste a déjà mémorisé le code.
     const codeMemorise = await window.aa.getTeamCode();
     if (codeMemorise) {
+      // Le poste est déjà connu : la dernière copie s'affiche tout de suite,
+      // pendant que la connexion se fait.
+      const copie = afficheCopieLocale();
       try {
         const ok = await connecte(codeMemorise, whoami);
         if (ok) {
           appliqueProfil();
           renderUser();
-          showState("loading", "Chargement du registre…");
+          if (!copie) showState("loading", "Chargement du registre…");
           loadOffers();
           subscribeRealtime();
           rejoindrePresence();
           return;
         }
         // Le code a été changé côté registre depuis la dernière ouverture.
+        if (copie) { OFFERS = []; CORBEILLE = []; effaceCopieLocale(); render(); }
         await window.aa.forgetTeamCode();
         demandeConnexion("Le code d'équipe a changé. Saisissez le nouveau.");
       } catch (err) {
-        setConn("offline", "Hors connexion");
-        showState("error", "Impossible de joindre le registre : " + (err && err.message ? err.message : err));
+        setConn("offline", copie ? "Hors connexion — dernière copie affichée" : "Hors connexion");
+        if (!copie) showState("error", "Impossible de joindre le registre : " + (err && err.message ? err.message : err));
+        else toast("Registre injoignable : vous consultez la dernière copie gardée sur ce poste.", "info", 7000);
       }
       return;
     }
@@ -797,8 +807,16 @@
   /** Attend `ms`, en s'annulant proprement si une autre tentative démarre. */
   function patiente(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  async function loadOffers() {
+  // Les tables annexes (sources, prospection, contacts, tâches, profil,
+  // compteurs de documents) ne sont chargées qu'à l'ouverture, à
+  // l'actualisation manuelle et au retour de la liaison : ensuite, le temps
+  // réel les tient à jour. Avant la 1.21, chaque enregistrement relançait
+  // sept requêtes.
+  let annexesChargees = false;
+
+  async function loadOffers(opts) {
     if (!sb) return;
+    if (opts && opts.complet) annexesChargees = false;
     if (relanceChargement) { clearTimeout(relanceChargement); relanceChargement = null; }
     const COLS = "id,titre,emetteur,origine,filiale,type,secteur,region,montant,date_publication,date_limite,lien_source,description,criteres,contact,statut_traitement,assigne,source_id,created_at,created_by,zone,date_soumission,date_depouillement,date_relance,commentaire_suivi,resultat,decision,decision_par,decision_le,decision_motif,supprime_le,supprime_par,motif_suppression,exigences,maj_par,maj_le,statut_par,statut_le,hash_dedup";
 
@@ -836,12 +854,16 @@
     setConn("live", "Synchronisé");
     SYNC.derniere = Date.now(); majSync();
     $("#loading").hidden = true;
-    loadFileCounts();
-    loadSources();
-    loadOpportunites();
-    loadContacts();
-    loadTaches();
-    loadProfilAA();
+    if (!annexesChargees) {
+      annexesChargees = true;
+      loadFileCounts();
+      loadSources();
+      loadOpportunites();
+      loadContacts();
+      loadTaches();
+      loadProfilAA();
+    }
+    ecrisCopieLocale(toutes);
     render();
     archiveObsoletes();
     programmeBriefing();
@@ -861,10 +883,67 @@
     reloadTimer = setTimeout(loadOffers, 300);
   }
 
+  /**
+   * Un changement d'offre arrive du temps réel : on applique la ligne reçue
+   * telle quelle (la base envoie la ligne complète), sans relire la table.
+   * Plusieurs changements rapprochés — une veille qui ajoute vingt offres —
+   * ne donnent qu'un seul rafraîchissement de l'écran.
+   */
+  let rafraichissementPrevu = null;
+  function appliqueChangementOffre(p) {
+    const n = p && p.new && p.new.id ? p.new : null;
+    const ancienId = p && p.old && p.old.id;
+    if (!n && !(p && p.eventType === "DELETE" && ancienId)) { scheduleReload(); return; }
+    const id = n ? n.id : ancienId;
+    // Une colonne volumineuse inchangée (description, exigences) peut manquer
+    // dans la ligne reçue : on complète avec ce qu'on avait.
+    let avant = null;
+    const retire = (liste) => { const i = liste.findIndex(x => x.id === id); if (i >= 0) avant = liste.splice(i, 1)[0]; };
+    retire(OFFERS); retire(CORBEILLE);
+    if (n) { const ligne = Object.assign({}, avant || {}, n); (ligne.supprime_le ? CORBEILLE : OFFERS).push(ligne); }
+    SYNC.derniere = Date.now(); majSync();
+    clearTimeout(rafraichissementPrevu);
+    rafraichissementPrevu = setTimeout(() => {
+      OFFERS.sort((a, b) => String(a.date_limite || "9999").localeCompare(String(b.date_limite || "9999")));
+      buildFuse();
+      render();
+      if (currentDetailId && $("#detail").open && OFFERS.some(o => o.id === currentDetailId)) fillDetail(currentDetailId);
+      ecrisCopieLocale(OFFERS.concat(CORBEILLE));
+      archiveObsoletes();
+    }, 200);
+  }
+
+  // ------------------------------------------------ copie locale du registre
+  // Au démarrage, le registre s'affiche aussitôt depuis la dernière copie
+  // gardée sur ce poste, puis se met à jour dès que la base répond.
+  const CLE_COPIE = "aa.copie-registre";
+  let copieMinuteur = null;
+  function ecrisCopieLocale(toutes) {
+    clearTimeout(copieMinuteur);
+    copieMinuteur = setTimeout(() => {
+      try { localStorage.setItem(CLE_COPIE, JSON.stringify({ le: Date.now(), offres: toutes })); } catch (_) { /* plein ou indisponible */ }
+    }, 1500);
+  }
+  function effaceCopieLocale() { try { localStorage.removeItem(CLE_COPIE); } catch (_) {} }
+  function afficheCopieLocale() {
+    if (OFFERS.length) return false;
+    let copie = null;
+    try { copie = JSON.parse(localStorage.getItem(CLE_COPIE) || "null"); } catch (_) { copie = null; }
+    if (!copie || !Array.isArray(copie.offres) || !copie.offres.length) return false;
+    if (Date.now() - (copie.le || 0) > 30 * 86400000) return false;
+    CORBEILLE = copie.offres.filter(o => o.supprime_le);
+    OFFERS = copie.offres.filter(o => !o.supprime_le);
+    buildFuse();
+    $("#loading").hidden = true;
+    render();
+    setConn("connecting", "Copie du " + new Date(copie.le).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) + " — synchronisation…");
+    return true;
+  }
+
   function subscribeRealtime() {
     if (realtimeChannel) sb.removeChannel(realtimeChannel);
     realtimeChannel = sb.channel("registre-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "offers" }, (p) => { annonceChangement(p); scheduleReload(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "offers" }, (p) => { annonceChangement(p); appliqueChangementOffre(p); })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "offer_journal" }, (p) => {
         if (currentDetailId && p.new && p.new.offer_id === currentDetailId) loadJournal(currentDetailId);
         if (!$("#presence-pop").hidden) loadActivite();

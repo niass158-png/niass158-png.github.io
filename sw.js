@@ -9,7 +9,7 @@
      l'appliquer.
    La liste et la version sont écrites par web/construire-web.js.
    ========================================================================== */
-const VERSION = "1.20.0-de80f79cea";
+const VERSION = "1.21.0-fe52dc87c1";
 const FICHIERS = [
  "./",
  "app.js",
