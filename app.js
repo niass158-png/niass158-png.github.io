@@ -566,149 +566,7 @@
     settingsForm.supabaseAnonKey.value = cfg.supabaseAnonKey || "";
     settingsDlg.showModal();
     settingsForm.whoami.focus();
-    afficheEquipe();
   }
-
-  // ======================================================================
-  // Équipe : liste des membres, invitations, droits (Paramètres)
-  // ======================================================================
-  async function appelMembres(methode, charge) {
-    const { data, error } = await sb.functions.invoke("veille-en-ligne", { body: { action: "membres", methode, charge: charge || {} } });
-    if (error) {
-      let msg = error.message;
-      try { const corps = await error.context.json(); if (corps && corps.message) msg = corps.message; } catch (_) { /* corps illisible */ }
-      throw new Error(msg);
-    }
-    if (!data || data.ok === false) throw new Error((data && data.message) || "Réponse vide du serveur.");
-    return data;
-  }
-
-  const quandCourt = (iso) => iso ? new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" }) : "jamais";
-
-  async function afficheEquipe() {
-    const boite = $("#equipe-liste");
-    if (!boite || !sb) return;
-    const admin = estAdmin();
-    $("#equipe-invite").hidden = !admin;
-    $("#equipe-code").hidden = true;
-    $("#mdp-change").hidden = !(MOI && !MOI.commun);
-    $("#equipe-aide").textContent = admin
-      ? "Chaque membre se connecte avec son e-mail et son propre mot de passe. Pour ajouter quelqu'un : son nom, son e-mail, « Inviter » — puis transmettez-lui le code affiché."
-      : "Chaque membre se connecte avec son e-mail et son propre mot de passe. L'administrateur gère la liste.";
-    boite.innerHTML = '<p class="muted-line">Chargement…</p>';
-    let membres = [];
-    try { membres = (await appelMembres("lister")).membres || []; }
-    catch (e) { boite.innerHTML = '<p class="muted-line">Liste indisponible : ' + esc(e.message) + "</p>"; return; }
-    boite.innerHTML = membres.map(m => {
-      const moi = MOI && m.user_id === MOI.user_id;
-      const commun = estCompteCommun(m.email);
-      const etat = !m.actif ? '<span class="eq-etat off">désactivé</span>'
-        : !m.active ? '<span class="eq-etat wait">invitation en attente</span>'
-        : '<span class="eq-etat">connecté le ' + esc(quandCourt(m.derniere_connexion)) + "</span>";
-      const actions = !admin ? "" : `
-        <div class="eq-actions">
-          <select data-eq-role="${esc(m.user_id)}"${moi ? " disabled" : ""}>
-            <option value="contributeur"${m.role !== "administrateur" ? " selected" : ""}>Équipe</option>
-            <option value="administrateur"${m.role === "administrateur" ? " selected" : ""}>Administrateur</option>
-          </select>
-          ${commun ? "" : `<button type="button" class="btn small" data-eq-code="${esc(m.user_id)}"${m.actif ? "" : " disabled"}>Nouveau code</button>`}
-          ${moi ? "" : `<button type="button" class="btn small${m.actif ? "" : " primary"}" data-eq-actif="${esc(m.user_id)}" data-valeur="${m.actif ? "0" : "1"}">${m.actif ? "Désactiver" : "Réactiver"}</button>`}
-        </div>`;
-      return `<div class="eq-ligne${m.actif ? "" : " is-off"}">
-          <div class="eq-qui"><b>${esc(m.nom || m.email || "—")}</b>${moi ? ' <span class="eq-moi">vous</span>' : ""}${commun ? ' <span class="eq-moi">compte partagé</span>' : ""}
-            <span class="eq-mail">${esc(m.email || "")} · ${m.role === "administrateur" ? "Administrateur" : "Équipe"} · ${etat}</span></div>
-          ${actions}
-        </div>`;
-    }).join("") || '<p class="muted-line">Aucun membre.</p>';
-  }
-
-  /** Affiche le code à transmettre, avec le message tout prêt. */
-  function afficheCodeMembre(r, invitation) {
-    const zone = $("#equipe-code");
-    const texte = "Bonjour " + (r.nom || "") + ",\n\n"
-      + (invitation ? "Vous avez maintenant un compte personnel dans le Registre des Offres A&A.\n\n" : "Voici un code pour choisir un nouveau mot de passe dans le Registre des Offres A&A.\n\n")
-      + "1. Ouvrez le Registre (logiciel du PC, ou https://niass158-png.github.io sur téléphone).\n"
-      + "2. À l'écran de connexion, onglet « J'ai un code ».\n"
-      + "3. Saisissez votre e-mail (" + r.email + ") et ce code : " + r.code + "\n"
-      + "4. Choisissez votre mot de passe (8 caractères au moins). Le code ne sert qu'une fois.\n\n"
-      + "Ensuite, connectez-vous simplement avec votre e-mail et ce mot de passe.\n\n" + (whoami || "") + "\nA&A Group";
-    zone.hidden = false;
-    zone.innerHTML = `<p><b>Code pour ${esc(r.nom || r.email)} : <span class="eq-code">${esc(r.code)}</span></b></p>
-      <p class="help">À lui transmettre (e-mail, WhatsApp). Valable une seule fois et pour une durée limitée ; en cas d'expiration, « Nouveau code ».</p>
-      <div class="ia-ligne">
-        <button type="button" class="btn small primary" id="eq-envoyer">Envoyer par e-mail</button>
-        <button type="button" class="btn small" id="eq-copier">Copier le message</button>
-      </div>`;
-    $("#eq-copier").addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText(texte); toast("Message copié : collez-le dans WhatsApp ou un e-mail.", "success"); }
-      catch (_) { toast("Copie impossible sur ce poste.", "error"); }
-    });
-    $("#eq-envoyer").addEventListener("click", async () => {
-      const objet = "Registre des Offres A&A — votre accès";
-      let envoi = null;
-      try { envoi = window.aa.courriel ? await window.aa.courriel.envoyer({ destinataires: [r.email], objet, corps: texte }) : { nonConfigure: true }; }
-      catch (e) { envoi = { ok: false, message: e.message }; }
-      if (envoi && envoi.nonConfigure) {
-        window.aa.openExternal("mailto:" + encodeURIComponent(r.email) + "?subject=" + encodeURIComponent(objet) + "&body=" + encodeURIComponent(texte));
-        toast("Messagerie non configurée : un brouillon s'est ouvert, à vous de l'envoyer.", "info", 7000);
-      } else if (!envoi || !envoi.ok) toast("Envoi impossible : " + ((envoi && envoi.message) || "cause inconnue"), "error", 8000);
-      else toast("Accès envoyé à " + r.email + ".", "success");
-    });
-  }
-
-  $("#invite-btn").addEventListener("click", async () => {
-    const nom = $("#invite-nom").value.trim(), email = $("#invite-email").value.trim(), role = $("#invite-role").value;
-    if (!nom || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast("Indiquez le nom et une adresse e-mail valide.", "info"); return; }
-    const b = $("#invite-btn"); b.disabled = true; b.classList.add("is-busy");
-    try {
-      const r = (await appelMembres("inviter", { nom, email, role })).resultat;
-      $("#invite-nom").value = ""; $("#invite-email").value = "";
-      await afficheEquipe();
-      afficheCodeMembre(r, true);
-      toast(nom + " ajouté(e) à l'équipe.", "success");
-    } catch (e) { toast("Invitation impossible : " + e.message, "error", 8000); }
-    finally { b.disabled = false; b.classList.remove("is-busy"); }
-  });
-
-  $("#equipe-liste").addEventListener("click", async (e) => {
-    const c = e.target.closest("[data-eq-code]");
-    const a = e.target.closest("[data-eq-actif]");
-    if (!c && !a) return;
-    const bouton = c || a;
-    bouton.disabled = true;
-    try {
-      if (c) {
-        const r = (await appelMembres("code", { user_id: c.dataset.eqCode })).resultat;
-        afficheCodeMembre(r, r.type === "invite");
-      } else {
-        const actif = a.dataset.valeur === "1";
-        if (!actif && !confirm("Désactiver ce membre ? Il ne pourra plus ouvrir le registre (réactivable à tout moment).")) { bouton.disabled = false; return; }
-        await appelMembres("modifier", { user_id: a.dataset.eqActif, actif });
-        toast(actif ? "Membre réactivé." : "Membre désactivé.", "success");
-        await afficheEquipe();
-      }
-    } catch (err) { toast(err.message, "error", 8000); bouton.disabled = false; }
-  });
-
-  $("#equipe-liste").addEventListener("change", async (e) => {
-    const s = e.target.closest("[data-eq-role]");
-    if (!s) return;
-    try {
-      await appelMembres("modifier", { user_id: s.dataset.eqRole, role: s.value });
-      toast("Rôle mis à jour.", "success");
-    } catch (err) { toast(err.message, "error", 8000); }
-    afficheEquipe();
-  });
-
-  $("#mdp-btn").addEventListener("click", async () => {
-    const m1 = $("#mdp-nouveau").value, m2 = $("#mdp-confirme").value;
-    if (m1.length < 8) { toast("8 caractères au moins.", "info"); return; }
-    if (m1 !== m2) { toast("Les deux mots de passe ne sont pas identiques.", "info"); return; }
-    const { error } = await sb.auth.updateUser({ password: m1 });
-    if (error) { toast("Mot de passe refusé : " + error.message, "error", 8000); return; }
-    $("#mdp-nouveau").value = ""; $("#mdp-confirme").value = "";
-    toast("Mot de passe changé.", "success");
-  });
 
   $("#settings-btn").addEventListener("click", () => openSettings(false));
   $("#user-chip").addEventListener("click", () => openSettings(true));
@@ -744,57 +602,28 @@
   // Supabase (côté interface : lecture, édition, temps réel)
   // ======================================================================
   // ======================================================================
-  // Connexion au registre — un compte par personne
+  // Connexion au registre — code d'équipe
   //
-  // Depuis la 1.22, chaque membre se connecte avec son e-mail et son mot de
-  // passe. La liste de l'équipe est la table app_roles (nom, rôle, actif) :
-  // un compte qui n'y figure pas, ou plus, n'ouvre rien — la base le refuse
-  // d'elle-même (est_connecte). Les deux comptes partagés d'avant (« code
-  // d'équipe ») restent utilisables le temps de la transition.
-  //
-  // Première connexion et mot de passe oublié : l'administrateur génère un
-  // code à 6 chiffres (Paramètres → Équipe), que la personne saisit ici avec
-  // son e-mail avant de choisir son mot de passe. Aucun mot de passe ne passe
-  // par l'administrateur.
+  // Deux comptes existent dans le registre : l'un contributeur, l'autre
+  // administrateur. Le collaborateur ne saisit qu'un code ; c'est le compte
+  // auquel ce code correspond qui détermine ses droits. Les droits sont
+  // ensuite appliqués par la base elle-même : masquer un bouton ne protège
+  // rien, c'est une politesse envers l'utilisateur, pas une sécurité.
   // ======================================================================
   const loginDlg = $("#login-dialog");
-  let MOI = null;           // { user_id, email, nom, role, commun }
-  let loginMode = "compte";
 
   function erreurConnexion(message) {
     const box = $("#login-error");
     box.textContent = message || "";
     box.hidden = !message;
   }
-  function infoConnexion(message) {
-    const box = $("#login-info");
-    if (!box) return;
-    box.textContent = message || "";
-    box.hidden = !message;
-  }
 
-  const estCompteCommun = (email) => !!email &&
-    Object.values(COMPTES || {}).some(e => e && String(e).toLowerCase() === String(email).toLowerCase());
-
-  function choisisModeConnexion(mode) {
-    loginMode = mode;
-    $$("[data-login-mode]").forEach(b => b.classList.toggle("is-on", b.dataset.loginMode === mode));
-    $$(".login-mode").forEach(z => { z.hidden = z.dataset.mode !== mode; });
-    $("#login-submit-txt").textContent = mode === "activation" ? "Activer et se connecter" : "Se connecter";
-    erreurConnexion(""); infoConnexion("");
-    const premier = { compte: $("#login-email").value ? "#login-mdp" : "#login-email",
-                      activation: $("#login-act-email").value ? "#login-act-code" : "#login-act-email",
-                      equipe: whoami ? "#login-code" : "#login-nom" }[mode];
-    setTimeout(() => { const c = $(premier); if (c) c.focus(); }, 30);
-  }
-  $$("[data-login-mode]").forEach(b => b.addEventListener("click", () => choisisModeConnexion(b.dataset.loginMode)));
-
-  /** Essaie le code d'équipe sur les deux comptes partagés ; renvoie la session, ou null. */
+  /** Essaie le code sur les deux comptes ; renvoie le profil obtenu, ou null. */
   async function tenteConnexion(code) {
-    for (const email of [COMPTES.contributeur, COMPTES.administrateur]) {
+    for (const [role, email] of [["contributeur", COMPTES.contributeur], ["administrateur", COMPTES.administrateur]]) {
       if (!email) continue;
       const { data, error } = await sb.auth.signInWithPassword({ email, password: code });
-      if (!error && data && data.session) return data.session;
+      if (!error && data && data.session) return { role, session: data.session };
       // Un identifiant refusé fait partie du jeu : on passe au compte suivant.
       // Toute autre erreur (réseau, projet injoignable) doit remonter.
       if (error && !/invalid login credentials|invalid_grant/i.test(error.message)) throw error;
@@ -802,138 +631,60 @@
     return null;
   }
 
-  /** La fiche du membre connecté dans app_roles (rôle, nom, actif). */
-  async function lisMembre(userId) {
-    const { data, error } = await sb.from("app_roles").select("role,nom,email,actif").eq("user_id", userId).limit(1);
-    if (error) throw error;
-    return data && data[0] ? data[0] : null;
-  }
-
   /**
-   * Ouvre le registre pour une session : vérifie que le compte fait partie de
-   * l'équipe, en tire le rôle et le nom. Renvoie false sinon.
+   * Le rôle fait foi côté base, pas côté application : on le relit dans
+   * app_roles plutôt que de déduire des droits du compte utilisé.
    */
-  async function entreAvecSession(session, opts) {
-    const o = opts || {};
-    const u = session && session.user;
-    if (!u) return false;
-    const m = await lisMembre(u.id);
-    if (!m || m.actif === false) return false;
-    const commun = estCompteCommun(u.email);
-    MOI = { user_id: u.id, email: u.email, nom: m.nom || "", role: m.role || "contributeur", commun };
-    profil = MOI.role;
-    // Compte personnel : le nom vient de la liste de l'équipe. Compte partagé :
-    // c'est le nom saisi à la connexion qui signe les gestes.
-    if (!commun && m.nom) whoami = m.nom;
-    else if (o.nom) whoami = o.nom;
-    await window.aa.setSettings({ whoami });
-    await window.aa.rememberTeamCode(o.code || null, profil);
-    if (!commun) setPref("dernier-email", u.email);
-    if (window.aa.transmettreJeton) window.aa.transmettreJeton(session.access_token);
-    appliqueProfil();
-    renderUser();
-    return true;
-  }
-
-  function ouvreRegistre(copieAffichee) {
-    if (!copieAffichee) showState("loading", "Chargement du registre…");
-    loadOffers();
-    subscribeRealtime();
-    rejoindrePresence();
+  async function lisProfil(secours, userId) {
+    try {
+      // Il faut filtrer sur le compte connecté. Sans ce eq(), la requête
+      // renvoyait la première ligne venue de la table des rôles : un
+      // administrateur se retrouvait catalogué contributeur — et la veille
+      // échouait, le collecteur présentant alors l'adresse du contributeur
+      // avec le code de l'administrateur.
+      let q = sb.from("app_roles").select("role");
+      if (userId) q = q.eq("user_id", userId);
+      const { data } = await q.limit(1);
+      if (data && data.length && data[0].role) return data[0].role;
+    } catch (_) { /* table absente : on retombe sur le compte utilisé */ }
+    return secours;
   }
 
   async function connecte(code, nom) {
-    const session = await tenteConnexion(code);
-    if (!session) return null;
-    return (await entreAvecSession(session, { code, nom })) ? profil : null;
-  }
-
-  const MSG_HORS_EQUIPE = "Ce compte ne fait pas (ou plus) partie de l'équipe du registre. Voyez avec l'administrateur.";
-
-  async function connexionCompte() {
-    const email = $("#login-email").value.trim().toLowerCase();
-    const mdp = $("#login-mdp").value;
-    if (!email || !mdp) { erreurConnexion("Saisissez votre e-mail et votre mot de passe."); return false; }
-    const { data, error } = await sb.auth.signInWithPassword({ email, password: mdp });
-    if (error) {
-      if (/invalid login credentials|invalid_grant/i.test(error.message)) {
-        erreurConnexion("E-mail ou mot de passe incorrect. Première connexion ? Onglet « J'ai un code ».");
-        $("#login-mdp").select();
-        return false;
-      }
-      if (/banned/i.test(error.message)) { erreurConnexion(MSG_HORS_EQUIPE); return false; }
-      throw error;
-    }
-    if (!(await entreAvecSession(data.session))) {
-      await sb.auth.signOut().catch(() => {});
-      erreurConnexion(MSG_HORS_EQUIPE);
-      return false;
-    }
-    return true;
-  }
-
-  async function connexionActivation() {
-    const email = $("#login-act-email").value.trim().toLowerCase();
-    const code = $("#login-act-code").value.replace(/\D+/g, "");
-    const mdp = $("#login-act-mdp").value, mdp2 = $("#login-act-mdp2").value;
-    if (!email || !code) { erreurConnexion("Saisissez votre e-mail et le code reçu."); return false; }
-    if (mdp.length < 8) { erreurConnexion("Choisissez un mot de passe de 8 caractères au moins."); $("#login-act-mdp").focus(); return false; }
-    if (mdp !== mdp2) { erreurConnexion("Les deux mots de passe ne sont pas identiques."); $("#login-act-mdp2").select(); return false; }
-    // Le code peut être une invitation ou une réinitialisation : on essaie
-    // les deux, la base refusant le type qui ne correspond pas.
-    let session = null, derniere = null;
-    for (const type of ["invite", "recovery", "magiclink", "email"]) {
-      const { data, error } = await sb.auth.verifyOtp({ email, token: code, type });
-      if (!error && data && data.session) { session = data.session; break; }
-      derniere = error;
-      if (error && estPanneReseau(error.message)) throw error;
-    }
-    if (!session) {
-      erreurConnexion("Code invalide ou expiré" + (derniere && /expired/i.test(derniere.message) ? " (il a expiré)" : "") + ". Demandez-en un nouveau à l'administrateur.");
-      return false;
-    }
-    const maj = await sb.auth.updateUser({ password: mdp });
-    if (maj.error) {
-      erreurConnexion("Code accepté, mais le mot de passe a été refusé : " + maj.error.message);
-      return false;
-    }
-    if (!(await entreAvecSession(session))) {
-      await sb.auth.signOut().catch(() => {});
-      erreurConnexion(MSG_HORS_EQUIPE);
-      return false;
-    }
-    $("#login-act-code").value = ""; $("#login-act-mdp").value = ""; $("#login-act-mdp2").value = "";
-    toast("Mot de passe enregistré. La prochaine fois : votre e-mail et ce mot de passe.", "success", 7000);
-    return true;
-  }
-
-  async function connexionEquipe() {
-    const nom = $("#login-nom").value.trim();
-    const code = $("#login-code").value;
-    if (!nom || !code) { erreurConnexion("Saisissez votre nom et le code d'équipe."); return false; }
-    const ok = await connecte(code, nom);
-    if (!ok) {
-      erreurConnexion("Code d'équipe non reconnu. Vérifiez-le auprès de l'administrateur du registre.");
-      $("#login-code").select();
-      return false;
-    }
-    return true;
+    const res = await tenteConnexion(code);
+    if (!res) return null;
+    const userId = res.session && res.session.user ? res.session.user.id : null;
+    profil = await lisProfil(res.role, userId);
+    whoami = nom || whoami;
+    await window.aa.rememberTeamCode(code, profil);
+    await window.aa.setSettings({ whoami });
+    return profil;
   }
 
   $("#login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    erreurConnexion(""); infoConnexion("");
+    erreurConnexion("");
+    const nom = $("#login-nom").value.trim();
+    const code = $("#login-code").value;
+    if (!nom || !code) return;
     const btn = $("#login-submit");
     btn.disabled = true;
     btn.classList.add("is-busy");
     try {
-      const ok = loginMode === "activation" ? await connexionActivation()
-               : loginMode === "equipe" ? await connexionEquipe()
-               : await connexionCompte();
-      if (!ok) return;
+      const ok = await connecte(code, nom);
+      if (!ok) {
+        erreurConnexion("Code d'équipe non reconnu. Vérifiez-le auprès de l'administrateur du registre.");
+        $("#login-code").select();
+        return;
+      }
       loginDlg.close();
-      ouvreRegistre(false);
-      toast("Bienvenue " + (whoami || "") + " — " + (estAdmin() ? "administrateur" : "équipe") + ".", "success");
+      appliqueProfil();
+      renderUser();
+      showState("loading", "Chargement du registre…");
+      loadOffers();
+      subscribeRealtime();
+      rejoindrePresence();
+      toast("Connecté au registre — profil " + profil + ".", "success");
     } catch (err) {
       erreurConnexion(estPanneReseau(err && err.message)
         ? "Registre injoignable : vérifiez la connexion Internet de ce poste."
@@ -944,42 +695,22 @@
     }
   });
 
-  // Mot de passe oublié : le serveur envoie un code si la messagerie du
-  // registre est réglée ; sinon, c'est l'administrateur qui le génère.
-  $("#login-oubli").addEventListener("click", async () => {
-    const email = $("#login-email").value.trim().toLowerCase();
-    if (!email) { erreurConnexion("Saisissez d'abord votre adresse e-mail."); $("#login-email").focus(); return; }
-    erreurConnexion("");
-    try {
-      const { data } = await sb.functions.invoke("veille-en-ligne", { body: { action: "recuperation", email } });
-      $("#login-act-email").value = email;
-      choisisModeConnexion("activation");
-      infoConnexion((data && data.message) || "Demandez un code à l'administrateur (Paramètres → Équipe).");
-    } catch (err) {
-      erreurConnexion("Demande impossible : " + (err && err.message ? err.message : err) + ". Demandez un code à l'administrateur.");
-    }
-  });
-
   function demandeConnexion(message) {
+    erreurConnexion(message || "");
     $("#login-nom").value = whoami || "";
     $("#login-code").value = "";
-    $("#login-mdp").value = "";
-    if (!$("#login-email").value) $("#login-email").value = pref("dernier-email", "");
-    choisisModeConnexion("compte");
-    erreurConnexion(message || "");
     if (!loginDlg.open) loginDlg.showModal();
+    setTimeout(() => (whoami ? $("#login-code") : $("#login-nom")).focus(), 50);
   }
 
   $("#logout-btn").addEventListener("click", async () => {
     await window.aa.forgetTeamCode();
     try { await sb.auth.signOut(); } catch (_) { /* sans importance */ }
-    if (window.aa.transmettreJeton) window.aa.transmettreJeton(null);
-    MOI = null;
     effaceCopieLocale();
     settingsDlg.close();
     OFFERS = []; OPPS = []; SOURCES = []; CONTACTS = [];
     render();
-    demandeConnexion("Déconnecté de ce poste.");
+    demandeConnexion("Déconnecté de ce poste. Saisissez le code d'équipe pour revenir.");
   });
 
   // ======================================================================
@@ -996,8 +727,7 @@
     const cf = $("#contact-form"); if (cf) cf.hidden = !admin;
     const ap = $("#acces-profil");
     if (ap) {
-      ap.textContent = (MOI && !MOI.commun ? (MOI.nom || MOI.email) + " · " : MOI && MOI.commun ? "Compte partagé · " : "")
-        + (admin ? "Administrateur — tous les droits" : "Équipe — lecture, ajout et suivi");
+      ap.textContent = admin ? "Administrateur — tous les droits" : "Contributeur — lecture, ajout et suivi";
       ap.dataset.role = profil;
     }
   }
@@ -1019,35 +749,27 @@
     }
     setConn("connecting", "Connexion…");
 
-    // Le jeton de session suit le processus principal (veille du PC).
-    sb.auth.onAuthStateChange((_evt, session) => {
-      if (window.aa.transmettreJeton) window.aa.transmettreJeton(session ? session.access_token : null);
-    });
-
-    // Session gardée par ce poste (compte personnel, ou session du code
-    // d'équipe) : on rentre sans rien ressaisir.
-    try {
-      const { data } = await sb.auth.getSession();
-      const s = data && data.session;
-      if (s && s.user) {
-        const copie = afficheCopieLocale();
-        try {
-          if (await entreAvecSession(s, { nom: whoami })) { ouvreRegistre(copie); return; }
-          // Compte retiré de l'équipe depuis la dernière ouverture.
-          await sb.auth.signOut().catch(() => {});
-          if (copie) { OFFERS = []; CORBEILLE = []; effaceCopieLocale(); render(); }
-          demandeConnexion(MSG_HORS_EQUIPE);
+    // Version web (téléphone) : aucun code n'est conservé par le navigateur ;
+    // c'est la session du registre, qu'il garde jusqu'à la déconnexion, qui
+    // évite de ressaisir le code à chaque ouverture.
+    if (window.aa.plateforme === "web") {
+      try {
+        const { data } = await sb.auth.getSession();
+        const s = data && data.session;
+        if (s && s.user) {
+          const secours = s.user.email && s.user.email === COMPTES.administrateur ? "administrateur" : "contributeur";
+          profil = await lisProfil(secours, s.user.id);
+          await window.aa.rememberTeamCode(null, profil);
+          appliqueProfil();
+          renderUser();
+          if (!afficheCopieLocale()) showState("loading", "Chargement du registre…");
+          loadOffers();
+          subscribeRealtime();
+          rejoindrePresence();
           return;
-        } catch (err) {
-          if (copie && estPanneReseau(err && err.message)) {
-            setConn("offline", "Hors connexion — dernière copie affichée");
-            toast("Registre injoignable : vous consultez la dernière copie gardée sur ce poste.", "info", 7000);
-            return;
-          }
-          if (copie) { OFFERS = []; CORBEILLE = []; render(); }
         }
-      }
-    } catch (_) { /* session illisible : on redemande la connexion */ }
+      } catch (_) { /* session illisible : on redemande le code */ }
+    }
 
     // Reconnexion silencieuse si le poste a déjà mémorisé le code.
     const codeMemorise = await window.aa.getTeamCode();
@@ -1057,7 +779,15 @@
       const copie = afficheCopieLocale();
       try {
         const ok = await connecte(codeMemorise, whoami);
-        if (ok) { ouvreRegistre(copie); return; }
+        if (ok) {
+          appliqueProfil();
+          renderUser();
+          if (!copie) showState("loading", "Chargement du registre…");
+          loadOffers();
+          subscribeRealtime();
+          rejoindrePresence();
+          return;
+        }
         // Le code a été changé côté registre depuis la dernière ouverture.
         if (copie) { OFFERS = []; CORBEILLE = []; effaceCopieLocale(); render(); }
         await window.aa.forgetTeamCode();

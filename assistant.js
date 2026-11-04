@@ -447,8 +447,7 @@
     {
       cles: ["connexion", "connecter", "code", "equipe", "mot de passe", "indisponible", "hors ligne", "reseau", "internet"],
       titre: "Problème de connexion",
-      texte: "Chacun se connecte avec son e-mail et son mot de passe personnel ; la session reste ouverte sur le poste jusqu'à la déconnexion. " +
-        "Première connexion ou mot de passe oublié : l'administrateur génère un code (Paramètres → Équipe), à saisir dans l'onglet « J'ai un code ». " +
+      texte: "Le code d'équipe est demandé une seule fois puis conservé chiffré sur le poste par Windows. " +
         "Si le registre est annoncé indisponible, c'est presque toujours la résolution des noms de domaine qui a échoué : " +
         "l'application bascule alors d'elle-même sur un résolveur sécurisé et réessaie trois fois. " +
         "Si le message persiste, vérifiez la connexion Internet du poste."
