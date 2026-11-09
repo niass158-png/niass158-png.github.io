@@ -1710,3 +1710,18 @@ body[data-cartes="ardoise"] .card .pert{ background:rgba(255,255,255,.08); borde
 .ia-local select{ height:36px; padding:0 10px; border-radius:var(--radius-sm); border:1px solid var(--line-strong); background:var(--bg); max-width:100%; }
 .ia-local .ia-ligne select{ flex:1; min-width:0; }
 .wa-avis.local{ color:var(--aa-dark); }
+
+/* 1.24 — Prospection par filiale : puce de filiale sur la carte d'opportunité.
+   La classe f-* posée sur la puce elle-même redéfinit --f pour elle seule :
+   l'accent de la carte reste celui de la priorité. */
+.opp-fil{ display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 9px; border-radius:999px; background:var(--f-50,#EEF3F4); color:var(--ink-2); font-size:.74rem; font-weight:650; white-space:nowrap; }
+.opp-fil .fdot{ width:8px; height:8px; border-radius:50%; background:var(--f,var(--ink-3)); flex:none; }
+body[data-cartes="ardoise"] .opp-fil{ color:#E6EEF0; }
+
+/* 1.24 — Échéance à renseigner à la main, depuis la carte, la liste ou la fiche */
+.due.none.due-saisir, body[data-cartes] .card .due.none.due-saisir{ cursor:pointer; height:24px; padding:0 9px; border:1px dashed #9DB2B6; background:transparent; color:#115C67; font-weight:650; transition:background .15s, border-color .15s; }
+.due.none.due-saisir:hover, .due.none.due-saisir:focus-visible, body[data-cartes] .card .due.none.due-saisir:hover{ background:#EEF5F5; border-color:#115C67; outline:none; }
+body[data-cartes="ardoise"] .card .due.none.due-saisir{ color:#7FD8FA; border-color:rgba(127,216,250,.45); background:transparent; }
+body[data-cartes="ardoise"] .card .due.none.due-saisir:hover{ background:rgba(127,216,250,.12); }
+.deadline-box .btn.small .ico{ width:14px; height:14px; }
+.due-alerte{ color:#B54708; background:#FEF3E2; border-radius:8px; padding:8px 10px; }

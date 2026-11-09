@@ -88,8 +88,8 @@
     ["bilan_soumissions", "Bilan du suivi des soumissions : combien déposées, gagnées, perdues, en attente, et le taux de réussite.",
       { type: "object", properties: {} }],
 
-    ["liste_opportunites", "Opportunités de prospection, classées par score décroissant.",
-      { type: "object", properties: { limite: { type: "integer", description: "Défaut 15." } } }],
+    ["liste_opportunites", "Opportunités de prospection, classées par score décroissant, éventuellement d'une seule filiale.",
+      { type: "object", properties: { limite: { type: "integer", description: "Défaut 15." }, filiale: { type: "string", enum: ["A&A Strategy", "A&A Finance and Investment Advisory", "A&A Project Delivery", "A&A Knowledge Institute"] } } }],
 
     ["liste_sources", "Sources de veille enregistrées, avec leur état à la dernière collecte.",
       { type: "object", properties: {} }],
@@ -168,9 +168,9 @@
     ["assigner_offre", "Désigne le collaborateur en charge d'une offre.",
       { type: "object", properties: { offre_id: { type: "string" }, responsable: { type: "string" } }, required: ["offre_id", "responsable"] }],
 
-    ["creer_opportunite", "Ajoute une opportunité au tableau de prospection.",
+    ["creer_opportunite", "Ajoute une opportunité au tableau de prospection, rattachée à une filiale (celle de l'onglet ouvert si elle n'est pas précisée).",
       { type: "object", properties: {
-        structure: { type: "string" }, besoin: { type: "string" }, offre_aa: { type: "string" },
+        structure: { type: "string" }, filiale: { type: "string", enum: ["A&A Strategy", "A&A Finance and Investment Advisory", "A&A Project Delivery", "A&A Knowledge Institute"] }, besoin: { type: "string" }, offre_aa: { type: "string" },
         angle: { type: "string" }, statut: { type: "string" }, responsable: { type: "string" }, note: { type: "string" },
         fit: { type: "integer" }, relation: { type: "integer" }, financement: { type: "integer" },
         urgence: { type: "integer" }, concurrence: { type: "integer" }

@@ -381,6 +381,8 @@
     </div>
   </section>
 
+  <div class="subtabs"><div class="filiale-tabs" id="opp-filiales"></div></div>
+
   <section class="kpis" id="kpis-opp"></section>
 
   <section class="opp-arbitrage" id="opp-arbitrage" hidden></section>
@@ -401,7 +403,7 @@
   <div class="grid opp-grid" id="opp-grid"></div>
   <div class="state" id="opp-empty" hidden>
     <svg class="ico state-ico"><use href="#i-target"/></svg>
-    <p class="state-title">Aucune opportunité</p>
+    <p class="state-title" id="opp-empty-titre">Aucune opportunité</p>
     <p>Ajoutez les structures dont vous avez repéré un besoin, avec l'angle d'approche prévu.</p>
   </div>
 </main>
@@ -1042,7 +1044,8 @@
     <div class="modal-body">
       <input type="hidden" name="id">
       <div class="form-grid">
-        <div class="field"><label>Structure *</label><input required name="structure" placeholder="ex : ONAS"></div>
+        <div class="field full"><label>Structure *</label><input required name="structure" placeholder="ex : ONAS"></div>
+        <div class="field"><label>Filiale *</label><select required name="filiale"><option value="">Choisir la filiale…</option><option value="A&amp;A Strategy">Strategy</option><option value="A&amp;A Finance and Investment Advisory">Finance &amp; Investment</option><option value="A&amp;A Project Delivery">Project Delivery</option><option value="A&amp;A Knowledge Institute">Knowledge Institute</option></select></div>
         <div class="field"><label>Priorité</label><select name="priorite"><option>P1</option><option selected>P2</option><option>P3</option></select></div>
         <div class="field full"><label>Besoin identifié</label><textarea name="besoin" rows="2"></textarea></div>
         <div class="field full"><label>Offre A&amp;A correspondante</label><textarea name="offre_aa" rows="2"></textarea></div>
@@ -1085,6 +1088,26 @@
     </div>
     <div class="modal-foot">
       <button type="button" class="btn" id="opp-delete" hidden><svg class="ico"><use href="#i-trash"/></svg>Supprimer</button>
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn primary"><svg class="ico"><use href="#i-check"/></svg>Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============================================================ Échéance saisie à la main -->
+<dialog class="modal narrow" id="due-dialog">
+  <form id="due-form">
+    <div class="modal-head">
+      <div><h2 id="due-titre">Renseigner l'échéance</h2><p id="due-offre"></p></div>
+      <button class="icon-btn" data-close type="button" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label for="due-date">Date limite de dépôt *</label><input required type="date" id="due-date"></div>
+      <p class="help" id="due-aide">La date figure dans l'avis ou le DAO. Elle remplit la carte, le tri par échéance et le bandeau « À traiter en priorité ».</p>
+      <p class="help due-alerte" id="due-alerte" hidden>Cette date est déjà passée : l'offre sera considérée comme clôturée et quittera le registre pour la corbeille.</p>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" id="due-retirer" hidden>Retirer la date</button>
       <button type="button" class="btn" data-close>Annuler</button>
       <button type="submit" class="btn primary"><svg class="ico"><use href="#i-check"/></svg>Enregistrer</button>
     </div>

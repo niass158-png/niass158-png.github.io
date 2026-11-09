@@ -1353,7 +1353,7 @@
             ${FILE_COUNTS[o.id] ? `<span class="clip" title="${FILE_COUNTS[o.id]} document(s) joint(s)">${icon("paperclip")}${FILE_COUNTS[o.id]}</span>` : ""}
             ${o.assigne ? `<span class="avatar sm" title="Assignée à ${esc(o.assigne)}">${esc(initials(o.assigne))}</span>` : ""}
           </div>
-          ${duePill(o, true)}
+          ${duePillOuSaisie(o)}
         </div>
       </button>`;
   }
@@ -1363,7 +1363,7 @@
     const statut = o.statut_traitement || "Nouvelle";
     return `
       <tr data-open="${esc(o.id)}"${estRecente(o.id) ? ' class="is-recent"' : ""}>
-        <td>${duePill(o, true)}</td>
+        <td>${duePillOuSaisie(o)}</td>
         <td class="t-main"><div class="t-title" title="${esc(o.titre || "")}">${esc(o.titre || "(sans titre)")}${FILE_COUNTS[o.id] ? ` <span class="clip">${icon("paperclip")}${FILE_COUNTS[o.id]}</span>` : ""}</div><div class="t-sub">${esc([o.emetteur, o.type, o.region].filter(Boolean).join(" · "))}</div>
           <div class="t-sub">${provenanceChip(o)}</div></td>
         <td class="${fm.cls}"><div class="t-fil"><span class="fbadge">${esc(fm.short)}</span>${pucePertinence(o)}</div></td>
@@ -1371,6 +1371,73 @@
         <td><div class="t-status"><span class="wstatus ${statutCls(statut)}">${esc(statut)}${initialesStatut(o)}</span>${puceDecision(o)}${o.assigne ? `<span class="avatar sm" title="Assignée à ${esc(o.assigne)}">${esc(initials(o.assigne))}</span>` : ""}</div></td>
       </tr>`;
   }
+
+  // ----------------------------------------------------------------------
+  // Échéance saisie à la main (1.24)
+  //
+  // Une offre sans date limite affiche, à la place de la pastille, un appel
+  // « Renseigner l'échéance ». Le clic ouvre une petite fenêtre de saisie au
+  // lieu de la fiche. La collecte n'écrase jamais une ligne existante
+  // (ignore-duplicates) : la date saisie reste.
+  // ----------------------------------------------------------------------
+  function duePillOuSaisie(o) {
+    if (o.date_limite) return duePill(o, true);
+    return `<span class="due none due-saisir" role="button" tabindex="0" data-set-due="${esc(o.id)}" title="Renseigner la date limite à la main">${icon("calendar")}Renseigner l'échéance</span>`;
+  }
+
+  const dueDlg = $("#due-dialog");
+  let dueOffreId = null;
+
+  function ouvreSaisieEcheance(id) {
+    const o = OFFERS.find(x => x.id === id);
+    if (!o) return;
+    dueOffreId = id;
+    $("#due-titre").textContent = o.date_limite ? "Modifier l'échéance" : "Renseigner l'échéance";
+    $("#due-offre").textContent = (o.titre || "(sans titre)") + (o.emetteur ? " · " + o.emetteur : "");
+    $("#due-date").value = o.date_limite ? String(o.date_limite).slice(0, 10) : "";
+    $("#due-retirer").hidden = !o.date_limite;
+    majAlerteEcheance();
+    dueDlg.showModal();
+    setTimeout(() => $("#due-date").focus(), 30);
+  }
+
+  function majAlerteEcheance() {
+    const v = $("#due-date").value;
+    $("#due-alerte").hidden = !(v && v < jourIso(new Date()));
+  }
+  $("#due-date").addEventListener("input", majAlerteEcheance);
+
+  $("#due-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const v = $("#due-date").value;
+    if (!dueOffreId || !v) return;
+    const passee = v < jourIso(new Date());
+    const ok = await saveField(dueOffreId, { date_limite: v });
+    if (!ok) return;
+    dueDlg.close();
+    toast(passee ? "Date enregistrée : l'offre est clôturée et part en corbeille." : "Échéance enregistrée : " + fmtDate(v, { day: "numeric", month: "long", year: "numeric" }) + ".", passee ? "info" : "success", 3500);
+  });
+
+  $("#due-retirer").addEventListener("click", async () => {
+    if (!dueOffreId) return;
+    if (await saveField(dueOffreId, { date_limite: null })) { dueDlg.close(); toast("Date limite retirée.", "info", 2500); }
+  });
+
+  // Capture : le clic sur « Renseigner l'échéance » ne doit pas, en plus,
+  // ouvrir la fiche de la carte qui le contient.
+  document.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-set-due]");
+    if (!el) return;
+    e.preventDefault(); e.stopPropagation();
+    ouvreSaisieEcheance(el.dataset.setDue);
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const el = e.target.closest && e.target.closest("[data-set-due]");
+    if (!el) return;
+    e.preventDefault(); e.stopPropagation();
+    ouvreSaisieEcheance(el.dataset.setDue);
+  }, true);
 
   // Ouverture d'une fiche depuis n'importe quelle liste
   document.addEventListener("click", (e) => {
@@ -1442,7 +1509,11 @@
       + (isAuto ? `<span class="tag auto">${esc(sourceLabel(o.source_id))}</span>` : "");
     $("#dlg-title").textContent = o.titre || "(sans titre)";
     $("#dlg-emitter").textContent = o.emetteur || "Émetteur non renseigné";
-    $("#dlg-deadline").innerHTML = `${duePill(o, false)}<span>Date limite : <b>${esc(fmtDate(o.date_limite, { weekday: "long", day: "numeric", month: "long", year: "numeric" }))}</b></span>`;
+    $("#dlg-deadline").innerHTML = o.date_limite
+      ? `${duePill(o, false)}<span>Date limite : <b>${esc(fmtDate(o.date_limite, { weekday: "long", day: "numeric", month: "long", year: "numeric" }))}</b></span>`
+        + `<button type="button" class="link-btn" data-set-due="${esc(o.id)}">Modifier</button>`
+      : `${duePill(o, false)}<span>Date limite non renseignée</span>`
+        + `<button type="button" class="btn small primary" data-set-due="${esc(o.id)}">${icon("calendar")}Renseigner l'échéance</button>`;
 
     const statut = o.statut_traitement || "Nouvelle";
     $("#dlg-pipeline").innerHTML = STATUTS.map(s => `<button type="button" data-statut="${esc(s.value)}" class="${s.value === statut ? "is-active" : ""}${s.value === "Gagnée" ? " won" : s.value === "Perdue" ? " lost" : ""}">${esc(s.value)}</button>`).join("");
@@ -2848,27 +2919,57 @@
     renderTabCounts();
   }
 
+  // Filiale affichée dans l'onglet Prospection ("" = toutes, "__none__" = à qualifier)
+  let oppFiliale = pref("opp-filiale", "");
+  const oppDeLaFiliale = (o) => !oppFiliale || (oppFiliale === "__none__" ? !o.filiale : o.filiale === oppFiliale);
+  const oppsVisibles = () => OPPS.filter(oppDeLaFiliale);
+
+  function renderOppFiliales() {
+    const counts = {};
+    OPPS.forEach(o => { counts[o.filiale || ""] = (counts[o.filiale || ""] || 0) + 1; });
+    const onglets = [{ value: "", short: "Toutes les filiales", cls: "", n: OPPS.length }]
+      .concat(FILIALES.map(f => ({ value: f.value, short: f.short, cls: f.cls, n: counts[f.value] || 0 })));
+    if (counts[""]) onglets.push({ value: "__none__", short: "À qualifier", cls: "f-none", n: counts[""] });
+    if (oppFiliale && !onglets.some(t => t.value === oppFiliale)) oppFiliale = "";
+    $("#opp-filiales").innerHTML = onglets.map(t =>
+      `<button type="button" class="ftab ${t.cls}${oppFiliale === t.value ? " is-active" : ""}" data-opp-filiale="${esc(t.value)}">
+        ${t.cls ? '<span class="fdot"></span>' : ""}${esc(t.short)}<span class="n">${t.n}</span></button>`).join("");
+  }
+
+  $("#opp-filiales").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-opp-filiale]");
+    if (!b) return;
+    oppFiliale = b.dataset.oppFiliale;
+    setPref("opp-filiale", oppFiliale);
+    renderOpps(); renderArbitrage();
+  });
+
   function renderOpps() {
+    renderOppFiliales();
+    const LISTE = oppsVisibles();
+    const nomFiliale = oppFiliale === "__none__" ? "à qualifier" : oppFiliale ? filialeMeta(oppFiliale).short : "";
     const sort = $("#opp-sort").value || "score";
-    const rows = OPPS.slice().sort((a, b) => {
+    const rows = LISTE.slice().sort((a, b) => {
       if (sort === "structure") return String(a.structure).localeCompare(String(b.structure), "fr");
       if (sort === "priorite") return String(a.priorite).localeCompare(String(b.priorite)) || (b.score || 0) - (a.score || 0);
       return (b.score || 0) - (a.score || 0);
     });
-    const p1 = OPPS.filter(o => o.priorite === "P1").length;
-    const actives = OPPS.filter(o => !["Abandonné", "Converti en offre"].includes(o.statut)).length;
-    const moyenne = OPPS.length ? (OPPS.reduce((s, o) => s + (Number(o.score) || 0), 0) / OPPS.length).toFixed(2).replace(".", ",") : "—";
+    const p1 = LISTE.filter(o => o.priorite === "P1").length;
+    const actives = LISTE.filter(o => !["Abandonné", "Converti en offre"].includes(o.statut)).length;
+    const notees = LISTE.filter(o => Number.isFinite(Number(o.score)) && o.score != null);
+    const moyenne = notees.length ? (notees.reduce((s, o) => s + Number(o.score), 0) / notees.length).toFixed(2).replace(".", ",") : "—";
 
     $("#kpis-opp").innerHTML = [
-      { key: "o-all", label: "Opportunités suivies", value: OPPS.length, hint: actives + " encore actives", ic: "target", teinte: "dark" },
+      { key: "o-all", label: nomFiliale ? "Opportunités · " + nomFiliale : "Opportunités suivies", value: LISTE.length, hint: actives + " encore actives", ic: "target", teinte: "dark" },
       { key: "o-p1", label: "Priorité 1", value: p1, hint: "À attaquer en premier", ic: "flag", teinte: "crit" },
       { key: "o-score", label: "Score moyen", value: moyenne, hint: "Sur 5, pondéré", ic: "check", teinte: "teal" },
-      { key: "o-conv", label: "Converties en offre", value: OPPS.filter(o => o.statut === "Converti en offre").length, hint: "Passées au registre", ic: "trophy", teinte: "blue" }
+      { key: "o-conv", label: "Converties en offre", value: LISTE.filter(o => o.statut === "Converti en offre").length, hint: "Passées au registre", ic: "trophy", teinte: "blue" }
     ].map(kpiTile).join("");
     animerCompteurs($("#kpis-opp"));
 
-    $("#opp-count").textContent = plural(rows.length, "opportunité", "opportunités");
+    $("#opp-count").textContent = plural(rows.length, "opportunité", "opportunités") + (nomFiliale ? " · " + nomFiliale : "");
     $("#opp-empty").hidden = rows.length > 0;
+    $("#opp-empty-titre").textContent = nomFiliale && OPPS.length ? "Aucune opportunité pour " + nomFiliale : "Aucune opportunité";
     $("#opp-grid").innerHTML = rows.map(oppCardHtml).join("");
   }
 
@@ -2916,6 +3017,7 @@
       <button type="button" class="card opp-card prio-${esc(pr.toLowerCase())}" data-opp="${esc(o.id)}">
         <div class="card-top">
           <span class="fbadge">${esc(pr)}${PRIO_MOT[pr] ? " · " + PRIO_MOT[pr] : ""}</span>
+          <span class="opp-fil ${filialeMeta(o.filiale).cls}" title="${esc(o.filiale || "Filiale à qualifier")}"><span class="fdot"></span>${esc(filialeMeta(o.filiale).short)}</span>
           ${o.livrable ? `<span class="tag">${esc(o.livrable)}</span>` : ""}
         </div>
         <h3>${esc(o.structure || "(structure sans nom)")}</h3>
@@ -2953,10 +3055,12 @@
     $("#opp-dialog-title").textContent = o ? o.structure : "Nouvelle opportunité";
     $("#opp-delete").hidden = !o;
     if (o) {
-      ["id", "structure", "priorite", "besoin", "offre_aa", "angle", "livrable", "statut", "responsable", "note", "fit", "relation", "financement", "urgence", "concurrence"].forEach(k => {
+      ["id", "structure", "filiale", "priorite", "besoin", "offre_aa", "angle", "livrable", "statut", "responsable", "note", "fit", "relation", "financement", "urgence", "concurrence"].forEach(k => {
         if (oppForm[k]) oppForm[k].value = o[k] == null ? "" : o[k];
       });
     }
+    // Nouvelle opportunité : la filiale de l'onglet ouvert est proposée d'office.
+    if (!o) oppForm.filiale.value = oppFiliale && oppFiliale !== "__none__" ? oppFiliale : "";
     oppLiveScore();
     renderSuggestion(o);
     oppDlg.showModal();
@@ -2974,7 +3078,7 @@
     const v = Object.fromEntries(new FormData(oppForm).entries());
     const num = (x) => (x === "" || x == null ? null : Number(x));
     const row = {
-      structure: v.structure.trim(), priorite: v.priorite, besoin: v.besoin || null,
+      structure: v.structure.trim(), filiale: v.filiale || null, priorite: v.priorite, besoin: v.besoin || null,
       offre_aa: v.offre_aa || null, angle: v.angle || null, livrable: v.livrable || null,
       statut: v.statut, responsable: v.responsable || null, note: v.note || null,
       fit: num(v.fit), relation: num(v.relation), financement: num(v.financement),
@@ -3025,8 +3129,8 @@
 
   $("#export-opp-btn").addEventListener("click", async () => {
     if (!await ensureLib("xlsx")) { toast("Module Excel introuvable : relancez « construire-exe.cmd » ou vérifiez la connexion.", "error"); return; }
-    const rows = OPPS.slice().sort((a, b) => (b.score || 0) - (a.score || 0)).map(o => ({
-      "Priorité": o.priorite || "", "Structure": o.structure, "Besoin identifié": o.besoin || "",
+    const rows = oppsVisibles().sort((a, b) => String(a.filiale || "~").localeCompare(String(b.filiale || "~"), "fr") || (b.score || 0) - (a.score || 0)).map(o => ({
+      "Filiale": o.filiale || "À qualifier", "Priorité": o.priorite || "", "Structure": o.structure, "Besoin identifié": o.besoin || "",
       "Offre A&A correspondante": o.offre_aa || "", "Angle d'approche": o.angle || "",
       "Livrable type": o.livrable || "", "Fit": o.fit || "", "Relation": o.relation || "",
       "Financement": o.financement || "", "Urgence": o.urgence || "", "Concurrence": o.concurrence || "",
@@ -3038,7 +3142,8 @@
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Opportunités");
     const b64 = arrayBufferToBase64(XLSX.write(wb, { bookType: "xlsx", type: "array" }));
-    const res = await window.aa.saveXlsx("aa-group-opportunites-" + new Date().toISOString().slice(0, 10) + ".xlsx", b64);
+    const suffixe = oppFiliale && oppFiliale !== "__none__" ? filialeMeta(oppFiliale).short.toLowerCase().replace(/[^a-z]+/g, "-") + "-" : "";
+    const res = await window.aa.saveXlsx("aa-group-opportunites-" + suffixe + new Date().toISOString().slice(0, 10) + ".xlsx", b64);
     if (res && res.saved) toast("Opportunités exportées : " + res.filePath, "success", 6000);
   });
 
@@ -4136,7 +4241,8 @@
           total: OPPS.length,
           opportunites: OPPS.slice().sort((x, y) => (y.score || 0) - (x.score || 0))
             .slice(0, Math.min(50, a.limite || 15))
-            .map(x => ({ id: x.id, structure: x.structure, besoin: x.besoin, offre_aa: x.offre_aa, score: x.score, statut: x.statut, responsable: x.responsable }))
+            .filter(x => !a.filiale || x.filiale === a.filiale)
+            .map(x => ({ id: x.id, structure: x.structure, filiale: x.filiale || null, besoin: x.besoin, offre_aa: x.offre_aa, score: x.score, statut: x.statut, responsable: x.responsable }))
         };
 
       case "liste_sources":
@@ -4267,7 +4373,8 @@
       case "creer_opportunite": {
         if (!sb) return { erreur: true, message: "Registre non connecté." };
         const row = {
-          structure: a.structure, besoin: a.besoin || null, offre_aa: a.offre_aa || null,
+          structure: a.structure, filiale: FILIALE_BY_VALUE[a.filiale] ? a.filiale : (oppFiliale && oppFiliale !== "__none__" ? oppFiliale : null),
+          besoin: a.besoin || null, offre_aa: a.offre_aa || null,
           angle: a.angle || null, statut: a.statut || "À contacter", responsable: a.responsable || whoami || null,
           note: a.note || null,
           fit: a.fit || null, relation: a.relation || null, financement: a.financement || null,
@@ -6812,7 +6919,7 @@
 
   /** Les opportunités dont la note retenue s'écarte de la suggestion. */
   function aArbitrer() {
-    return OPPS.filter(o => {
+    return oppsVisibles().filter(o => {
       if (o.score == null) return true;
       if (o.score_suggere == null) return true;
       return Math.abs(Number(o.score) - Number(o.score_suggere)) >= 0.5;
@@ -6986,9 +7093,10 @@
     const hote = $("#opp-arbitrage");
     if (!hote) return;
     const liste = aArbitrer();
-    hote.hidden = !OPPS.length;
-    if (!OPPS.length) return;
-    const jamais = OPPS.filter(o => o.score_suggere == null).length;
+    const visibles = oppsVisibles();
+    hote.hidden = !visibles.length;
+    if (!visibles.length) return;
+    const jamais = visibles.filter(o => o.score_suggere == null).length;
     hote.innerHTML = `
       <div class="arb-haut">
         <div>
