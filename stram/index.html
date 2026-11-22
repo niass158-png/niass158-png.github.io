@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#6E5848">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://raqlhspskrzveduntove.supabase.co">
+<title>STRAM Suivi — Plateforme de suivi du projet</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div class="brand">
+      <div class="logo-mark">S</div>
+      <div><b>STRAM Suivi</b><small id="brandSub">Pilotage de chantier</small></div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="side-foot">
+      <span>Base de données en ligne</span>
+      <b id="lastSync" class="cloud-st off">Non connectée</b>
+      <div id="saveState">● Données enregistrées sur ce poste</div>
+      <div class="ver">Version <span id="ver">2.3.0</span></div>
+    </div>
+  </aside>
+  <div id="main">
+    <header id="top">
+      <button class="icon-btn" id="menuBtn" title="Menu">☰</button>
+      <div class="crumb"><h1 id="pageTitle">Tableau de bord</h1><span id="pageSub"></span></div>
+      <div class="top-right">
+        <div class="countdown" id="countdown"></div>
+        <button class="btn primary" id="btnSync" title="Synchroniser avec le mobile ou le PC">Synchroniser</button>
+      </div>
+    </header>
+    <section id="view"></section>
+  </div>
+</div>
+<nav id="bottomNav"></nav>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script src="vendor/jsQR.js"></script>
+<script src="js/util.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/store.js"></script>
+<script src="js/nomenclature.js"></script>
+<script src="js/planning.js"></script>
+<script src="js/import.js"></script>
+<script src="js/planning_v5.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/uix.js"></script>
+<script src="js/app.js"></script>
+<script src="js/modules/dashboard.js"></script>
+<script src="js/modules/planning.js"></script>
+<script src="js/modules/stock.js"></script>
+<script src="js/modules/commandes.js"></script>
+<script src="js/modules/finances.js"></script>
+<script src="js/modules/chantier.js"></script>
+<script src="js/modules/acces.js"></script>
+<script src="js/modules/rapports.js"></script>
+<script src="js/modules/qualite.js"></script>
+<script src="js/modules/parametres.js"></script>
+<script src="js/assistant.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/boot.js"></script>
+</body>
+</html>
