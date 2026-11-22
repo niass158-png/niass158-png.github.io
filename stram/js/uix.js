@@ -49,7 +49,7 @@ const UIX = (() => {
     const box = document.createElement('div'); box.className = 'sigpad';
     box.innerHTML = `<label class="lbl">${E(label)}</label><canvas width="520" height="150"></canvas><button type="button" class="btn xs ghost">Effacer</button>`;
     const c = UI.$('canvas', box), ctx = c.getContext('2d'); let drawing = false, empty = true;
-    ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.strokeStyle = '#3E3029';
+    ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.strokeStyle = '#303337';
     const pos = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
     c.addEventListener('pointerdown', e => { drawing = true; empty = false; c.setPointerCapture(e.pointerId); const [x, y] = pos(e); ctx.beginPath(); ctx.moveTo(x, y); });
     c.addEventListener('pointermove', e => { if (!drawing) return; const [x, y] = pos(e); ctx.lineTo(x, y); ctx.stroke(); });

@@ -126,16 +126,16 @@ const UI = (() => {
     return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${E(title)}</title><style>
       @font-face{font-family:Jakarta;src:url('${location.href.replace(/[^/]*$/, '')}fonts/jakarta-400.woff2')}
       @font-face{font-family:Jakarta;font-weight:700;src:url('${location.href.replace(/[^/]*$/, '')}fonts/jakarta-700.woff2')}
-      body{font-family:Jakarta,Aptos,'Segoe UI',Arial,sans-serif;color:#3E3029;margin:26px;font-size:11.5px}
-      .ph{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #6E5848;padding-bottom:10px;margin-bottom:16px}
-      .ph b{font-size:17px;color:#5E4A3E}.logo{width:130px;height:46px;border:1px dashed #D3AE8C;display:flex;align-items:center;justify-content:center;color:#B5A497;font-size:9px}
-      h1{font-size:19px;color:#5E4A3E;margin:0 0 12px}h2{font-size:14px;color:#5E4A3E;margin:18px 0 8px;border-bottom:1px solid #EDE3D8;padding-bottom:4px}h3{font-size:12.5px;color:#5E4A3E;margin:12px 0 6px}
-      table{width:100%;border-collapse:collapse;margin:8px 0}th{background:#6E5848;color:#fff;text-align:left;font-weight:700}
-      th,td{border:1px solid #E2D6C8;padding:5px 7px;vertical-align:top}.r{text-align:right}.sig{display:flex;gap:16px;margin-top:26px}.sig div{flex:1;border:1px solid #E2D6C8;min-height:90px;padding:6px}
-      .muted{color:#85705F}.kp{display:flex;gap:10px;margin:8px 0 4px}.kp div{flex:1;border:1px solid #E2D6C8;border-radius:8px;padding:8px 10px}.kp b{display:block;font-size:17px;color:#5E4A3E}
+      body{font-family:Jakarta,Aptos,'Segoe UI',Arial,sans-serif;color:#303337;margin:26px;font-size:11.5px}
+      .ph{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #555A61;padding-bottom:10px;margin-bottom:16px}
+      .ph b{font-size:17px;color:#494D53}.logo{width:130px;height:46px;border:1px dashed #78A3C8;display:flex;align-items:center;justify-content:center;color:#A2A5AA;font-size:9px}
+      h1{font-size:19px;color:#494D53;margin:0 0 12px}h2{font-size:14px;color:#494D53;margin:18px 0 8px;border-bottom:1px solid #C1D4E6;padding-bottom:4px}h3{font-size:12.5px;color:#494D53;margin:12px 0 6px}
+      table{width:100%;border-collapse:collapse;margin:8px 0}th{background:#555A61;color:#fff;text-align:left;font-weight:700}
+      th,td{border:1px solid #D3D5D7;padding:5px 7px;vertical-align:top}.r{text-align:right}.sig{display:flex;gap:16px;margin-top:26px}.sig div{flex:1;border:1px solid #D3D5D7;min-height:90px;padding:6px}
+      .muted{color:#6A717A}.kp{display:flex;gap:10px;margin:8px 0 4px}.kp div{flex:1;border:1px solid #D3D5D7;border-radius:8px;padding:8px 10px}.kp b{display:block;font-size:17px;color:#494D53}
       .bad{color:#A9593F;font-weight:700}.ok{color:#5E8A68;font-weight:700}.photos{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.photos img{width:100%;height:110px;object-fit:cover;border-radius:6px}
-      .scurve{width:100%;height:auto}.scurve .prev{fill:none;stroke:#B79B85;stroke-width:2.5;stroke-dasharray:6 4}.scurve .reel{fill:none;stroke:#6E5848;stroke-width:3}.scurve .area{fill:rgba(211,174,140,.18)}.scurve text{font-size:11px;fill:#85705F}.scurve .grid{stroke:#F0E8DF}.scurve .today{stroke:#C6826A;stroke-width:1.5}
-      .photos figure{margin:0}.photos figcaption{font-size:9px;color:#85705F}.bar{height:9px;background:#F2EBE2;border-radius:5px;overflow:hidden}.bar i{display:block;height:100%;background:#B48F70}
+      .scurve{width:100%;height:auto}.scurve .prev{fill:none;stroke:#9A9DA2;stroke-width:2.5;stroke-dasharray:6 4}.scurve .reel{fill:none;stroke:#555A61;stroke-width:3}.scurve .area{fill:rgba(120,163,200,.18)}.scurve text{font-size:11px;fill:#6A717A}.scurve .grid{stroke:#C8D9E8}.scurve .today{stroke:#C6826A;stroke-width:1.5}
+      .photos figure{margin:0}.photos figcaption{font-size:9px;color:#6A717A}.bar{height:9px;background:#CBDCEA;border-radius:5px;overflow:hidden}.bar i{display:block;height:100%;background:#8D9197}
       @page{margin:12mm}@media print{body{margin:0}}</style></head><body>
       <div class="ph"><div class="logo">LOGO</div><div style="text-align:center"><b>${E(p.intitule || 'Projet ' + p.nom)}</b><br><span class="muted">${E(p.localisation || '')}</span></div><div class="logo">LOGO</div></div>
       <h1>${E(title)}</h1>${html}<p class="muted" style="margin-top:22px">Édité le ${U.fr(U.today())}${S.user ? ' par ' + E(S.user.nom) : ''} — STRAM Suivi</p></body></html>`;

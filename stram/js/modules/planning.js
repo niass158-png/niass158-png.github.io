@@ -173,7 +173,7 @@ const PLANNING = (() => {
     const todayX = X(U.today()), finX = p.dateFinContractuelle ? X(p.dateFinContractuelle) + px : null;
     const groups = []; rows.forEach(x => { const ph = x.t.phase || 'Sans phase'; let g = groups.find(g => g.ph === ph); if (!g) groups.push(g = { ph, rows: [] }); g.rows.push(x); });
     const rowHtml = ({ t, r, e }) => {
-      const col = e?.couleur || '#B48F70';
+      const col = e?.couleur || '#8D9197';
       const ref = r.ref ? `<div class="gb-ref" style="left:${X(r.ref.debut)}px;width:${(U.diffDays(r.ref.debut, r.ref.fin) + 1) * px}px" title="Référence : ${U.fr(r.ref.debut)} → ${U.fr(r.ref.fin)}"></div>` : '';
       const ghost = (r.plan.debut !== r.prev.debut || r.plan.fin !== r.prev.fin) ? `<div class="gb-plan" style="left:${X(r.plan.debut)}px;width:${(U.diffDays(r.plan.debut, r.plan.fin) + 1) * px}px" title="Planifié : ${U.fr(r.plan.debut)} → ${U.fr(r.plan.fin)}"></div>` : '';
       const cls = r.type === 'Validation MO' ? 'mo' : r.type === 'Approvisionnement' ? 'ap' : r.type === 'Jalon' ? 'jal' : '';
@@ -188,7 +188,7 @@ const PLANNING = (() => {
       <div class="g-body">${groups.map(g => {
         const deb = g.rows.reduce((m, x) => x.r.prev.debut < m ? x.r.prev.debut : m, g.rows[0].r.prev.debut), fin = g.rows.reduce((m, x) => x.r.prev.fin > m ? x.r.prev.fin : m, g.rows[0].r.prev.fin);
         const late = g.rows.filter(x => x.r.enRetard).length, closed = st.closed[g.ph];
-        return `<div class="phase-h" data-ph="${U.esc(g.ph)}"><div class="g-left"><span>${closed ? '▸' : '▾'} ${U.esc(g.ph)}</span><span class="muted" style="font-weight:600">${g.rows.length} tâches${late ? ` · <span class="neg">${late} en retard</span>` : ''}</span></div><div class="g-track" style="width:${W}px"><div class="gb-plan" style="left:${X(deb)}px;width:${(U.diffDays(deb, fin) + 1) * px}px;top:15px;height:8px;background:#CDBBAB"></div></div></div>` + (closed ? '' : g.rows.map(rowHtml).join(''));
+        return `<div class="phase-h" data-ph="${U.esc(g.ph)}"><div class="g-left"><span>${closed ? '▸' : '▾'} ${U.esc(g.ph)}</span><span class="muted" style="font-weight:600">${g.rows.length} tâches${late ? ` · <span class="neg">${late} en retard</span>` : ''}</span></div><div class="g-track" style="width:${W}px"><div class="gb-plan" style="left:${X(deb)}px;width:${(U.diffDays(deb, fin) + 1) * px}px;top:15px;height:8px;background:#B9BCBF"></div></div></div>` + (closed ? '' : g.rows.map(rowHtml).join(''));
       }).join('')}<div class="g-today" style="left:calc(var(--gl) + ${todayX}px)" title="Aujourd'hui"></div>
       ${finX !== null ? `<div class="g-fin" style="left:calc(var(--gl) + ${finX}px)" title="Fin contractuelle ${U.fr(p.dateFinContractuelle)}"></div>` : ''}</div></div>`;
     UI.$$('.g-row', host).forEach(r => r.onclick = e => { if (e.target.closest('input')) return; editTask(S.get('taches', r.dataset.id)); });
@@ -200,7 +200,7 @@ const PLANNING = (() => {
   function liste(host, rowsIn) {
     const rows = sortRows(rowsIn); let ph = null;
     host.innerHTML = rows.length ? `<div class="tlist">${rows.map(({ t, r, e }) => { const head = (t.phase || 'Sans phase') !== ph ? (ph = t.phase || 'Sans phase', `<h3 style="margin:10px 0 0;font-size:14px;color:var(--ink2)">${U.esc(ph)}</h3>`) : '';
-      return head + `<div class="titem ${r.enRetard ? 'late' : ''}" style="--c:${e?.couleur || '#B48F70'}" data-id="${t.id}">
+      return head + `<div class="titem ${r.enRetard ? 'late' : ''}" style="--c:${e?.couleur || '#8D9197'}" data-id="${t.id}">
       <div>${tb(r.type)}<b>${U.esc(e?.nom || '—')}</b> · ${U.esc(t.nom || '')}<br><small>${U.fr(r.prev.debut)} → ${U.fr(r.prev.fin)} · ${r.dur} j · ${r.etat}${r.critique && r.etat !== 'Terminée' ? ' · <span class="neg">critique</span>' : ''}</small></div>
       <input class="avq" type="number" min="0" max="100" value="${r.av ?? ''}" placeholder="%" data-id="${t.id}">
       ${UI.bar(r.av ?? r.attendu, r.enRetard ? 'bad' : r.av === null ? 'na' : 'ok', r.av === null ? `≈ ${r.attendu} % (théorique)` : `${r.av} % · attendu ${r.attendu} %`)}</div>`; }).join('')}</div>` : '<div class="card"><p class="muted">Aucune tâche pour ces filtres.</p></div>';

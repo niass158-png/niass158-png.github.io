@@ -11,7 +11,7 @@
       { k: 'lot', label: 'Lot / description de l\'intervention', full: true },
       { k: 'responsable', label: 'Responsable sur site' }, { k: 'tel', label: 'Téléphone' }, { k: 'email', label: 'E-mail' },
       { k: 'effectifPrevu', label: 'Effectif prévu', type: 'number' }, { k: 'debut', label: 'Début d\'intervention (contrat)', type: 'date' }, { k: 'fin', label: 'Fin d\'intervention (contrat)', type: 'date' },
-      { k: 'couleur', label: 'Couleur au planning', type: 'color', default: '#B48F70' },
+      { k: 'couleur', label: 'Couleur au planning', type: 'color', default: '#8D9197' },
     ], onSave: v => { S.save('entreprises', Object.assign({ id: e.id }, v), `Entreprise « ${v.nom} » enregistrée`); UI.toast('Entreprise enregistrée'); },
     onDelete: e.id ? () => { if (S.list('taches').some(t => t.entrepriseId === e.id) || S.list('marches').some(m => m.entrepriseId === e.id)) { UI.toast('Entreprise liée à des tâches ou un marché : suppression impossible', 'err'); return; } S.remove('entreprises', e.id, `Entreprise « ${e.nom} » supprimée`); } : null });
   }

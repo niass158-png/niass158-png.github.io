@@ -4,7 +4,7 @@ const IMPORT = (() => {
   const key = s => U.norm(s).replace(/[^a-z0-9]/g, '');
   const ROLES = { MO: "Maître d'ouvrage", MOE: "Maîtrise d'œuvre / BET", FOURN: 'Fournisseurs', TRANSPORT: 'Transport maritime', TRANSIT: 'Transit / dédouanement',
     KONE: 'Ascenseur (fabricant)', ENT: 'Entreprise à préciser', TOUS: 'Tous corps d\'état', SENELEC: 'Concessionnaire électricité', SONATEL: 'Opérateur télécom', BCT: 'Bureau de contrôle' };
-  const SOFT = ['#B48F70', '#8FA68E', '#A38BA8', '#C9967E', '#7E98AE', '#C4A574', '#9C7B65', '#88A6A0', '#B88B8B', '#A3A07A', '#8C8FB0', '#C7A88C', '#7F9C86', '#B3927E', '#9AA0B8'];
+  const SOFT = ['#8D9197', '#96999E', '#95999E', '#6797C1', '#92959A', '#5D90BD', '#7B8086', '#93969B', '#9EA1A5', '#8A8E93', '#9A9DA2', '#709DC5', '#898D92', '#94989D', '#A5A8AD'];
 
   /** Lit une feuille Excel (tableau de lignes) et repère les colonnes ; les lignes sans tâche servent de titres de phase */
   function rowsFromSheet(rows) {
