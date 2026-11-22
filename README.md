@@ -9,5 +9,5 @@ Moteur en ligne (veille, messagerie, alertes) : fonction Supabase veille-en-lign
 
 - Version mobile (web) : https://niass158-png.github.io/stram/
 - Application Android : https://niass158-png.github.io/apk/stram-suivi.apk
-- Logiciel PC (Windows) : page « Releases » du dépôt, fichier `STRAM_Suivi_Setup_x.y.z.exe`. Le bouton « Vérifier les mises à jour » du logiciel lit cette page.
+- Logiciel PC (Windows) : https://niass158-png.github.io/telechargements/STRAM_Suivi_Setup_2.4.0.exe — le bouton « Vérifier les mises à jour » du logiciel lit `stram/version.json`.
 - Base de données en ligne : Supabase, projet « STRAM Suivi ».
