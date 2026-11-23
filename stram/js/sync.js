@@ -7,6 +7,10 @@ const CLOUD = (() => {
   const APIKEY = 'sb_publishable_s5DTOXloQNPEuF31-e4jNg_3Igu7hut';
   const LK = 'stram-cloud-cle';
   const PERIODE = 20000;
+  /* clé de l'espace « Chantier STRAM » intégrée : tout appareil installé se connecte seul à la base du chantier */
+  const DEFAUT = 'STRAM-HHPC3-QXZ3E-WFCRY-B6PNY';
+  const OFF = 'stram-cloud-off';
+  let autoTimer = null;
   let etat = { st: 'off', msg: 'Non connectée', t: null };
   let busy = false, again = false, timer = null, deb = null;
   const subs = [];
@@ -62,9 +66,11 @@ const CLOUD = (() => {
       // 2. réception des modifications des autres appareils (différée si une saisie est en cours à l'écran)
       const ae = document.activeElement;
       const saisie = !manuel && ae && ae.closest && ae.closest('#view') && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+      const initial = !(d._cloud.seq > 0);
       for (let i = 0; i < 200 && !saisie; i++) {
         const lot = await rpc('stram_pull', { p_cle: cle(), p_depuis: d._cloud.seq || 0, p_limite: 300 });
         if (!lot || !lot.length) break;
+        if (!initial && typeof NOUV !== 'undefined') NOUV.recevoir(lot.filter(o => o.appareil !== d.appareil));
         recus += S.applyRemote(lot);
         d._cloud.seq = lot[lot.length - 1].seq;
         if (lot.length < 300) break;
@@ -92,26 +98,7 @@ const CLOUD = (() => {
     if (!/^STRAM-[A-Z0-9]{5}(-[A-Z0-9]{5}){3}$/.test(k)) { UI.toast('Clé invalide : elle a la forme STRAM-XXXXX-XXXXX-XXXXX-XXXXX', 'err'); return; }
     let i;
     try { i = await info(k); } catch (e) { UI.toast(e.reseau ? 'Pas de connexion Internet' : (/inconnue/i.test(e.message) ? 'Clé de synchronisation inconnue' : e.message), 'err'); return; }
-    const go = async mode => {
-      setCle(k);
-      if (mode === 'recuperer') {
-        const ancien = JSON.parse(JSON.stringify(S.data));
-        await S.wipeForCloud();
-        S.data._cloud = { seq: 0, espace: i.nom, depuis: new Date().toISOString() };
-        await sync();
-        if (etat.st !== 'ok') { setCle(''); await S.restoreRaw(ancien); UI.toast('Récupération interrompue : les données de cet appareil sont conservées. Réessayez avec une bonne connexion.', 'err'); return; }
-        try { sessionStorage.removeItem('stram-session'); } catch (e) { }
-        await S.persist(true);
-        UI.toast('Données récupérées depuis la base en ligne');
-        setTimeout(() => location.reload(), 600);
-        return;
-      }
-      S.data._cloud = { seq: 0, espace: i.nom, depuis: new Date().toISOString() };
-      S.markAll(); S.persist();
-      await sync();
-      UI.toast(mode === 'envoyer' ? 'Données de cet appareil envoyées dans la base en ligne' : 'Données fusionnées avec la base en ligne');
-      start(); onDone && onDone();
-    };
+    const go = mode => lancer(k, i, mode, onDone);
     if (!i.enregistrements) {
       UI.modal({ title: 'Base « ' + i.nom + ' » vide', body: '<p>La base en ligne ne contient encore aucune donnée. Les données de cet appareil vont y être envoyées : elles deviendront la référence pour tous les autres appareils.</p><p class="muted">Faites-le depuis le PC qui contient les vraies données du chantier.</p>',
         actions: [{ label: 'Annuler' }, { label: 'Envoyer mes données', cls: 'primary', onClick: () => go('envoyer') }] });
@@ -122,11 +109,50 @@ const CLOUD = (() => {
         actions: [{ label: 'Annuler' }, { label: 'Fusionner', onClick: () => go('fusionner') }, { label: 'Récupérer la base', cls: 'primary', onClick: () => go('recuperer') }] });
     }
   }
-  function deconnecter() { setCle(''); if (S.data._cloud) delete S.data._cloud; S.persist(); stop(); set('off', 'Non connectée'); }
+  async function lancer(k, i, mode, onDone) {
+    setCle(k); try { localStorage.removeItem(OFF); } catch (e) { }
+    if (mode === 'recuperer') {
+      const ancien = JSON.parse(JSON.stringify(S.data));
+      await S.wipeForCloud();
+      S.data._cloud = { seq: 0, espace: i.nom, depuis: new Date().toISOString() };
+      await sync();
+      if (etat.st !== 'ok') { setCle(''); await S.restoreRaw(ancien); UI.toast('Récupération interrompue : les données de cet appareil sont conservées. Réessayez avec une bonne connexion.', 'err'); return; }
+      try { sessionStorage.removeItem('stram-session'); } catch (e) { }
+      await S.persist(true);
+      UI.toast('Données récupérées depuis la base en ligne');
+      setTimeout(() => location.reload(), 600);
+      return;
+    }
+    S.data._cloud = { seq: 0, espace: i.nom, depuis: new Date().toISOString() };
+    S.markAll(); S.persist();
+    await sync();
+    UI.toast(mode === 'envoyer' ? 'Données de cet appareil envoyées dans la base en ligne' : 'Données fusionnées avec la base en ligne');
+    start(); onDone && onDone();
+  }
+
+  function deconnecter() { setCle(''); try { localStorage.setItem(OFF, '1'); } catch (e) { } if (S.data._cloud) delete S.data._cloud; S.persist(); stop(); set('off', 'Non connectée'); }
+
+  /* appareil sans saisie propre : rien à perdre à récupérer la base */
+  const vierge = () => !S.list('avancements').some(a => !/import/i.test(a.commentaire || '')) && ['mouvements', 'commandes', 'journal', 'acces', 'reserves', 'situations', 'marches', 'rapports', 'actions', 'reunions', 'utilisateurs'].every(c => !S.list(c).length);
+  const autoOff = () => { try { return !!localStorage.getItem(OFF); } catch (e) { return true; } };
+  async function auto() {
+    clearTimeout(autoTimer);
+    if (actif() || autoOff()) return;
+    const plusTard = (msg, ms = 60000) => { set('off', msg); autoTimer = setTimeout(auto, ms); };
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return plusTard('Hors ligne · connexion automatique dès le retour du réseau');
+    let i; try { i = await info(DEFAUT); } catch (e) { return plusTard(e.reseau ? 'Hors ligne · connexion automatique dès le retour du réseau' : 'Connexion automatique impossible : ' + e.message.slice(0, 60)); }
+    if (!i.enregistrements) {
+      if (vierge()) return plusTard('En attente des premières données du chantier', 120000);
+      set('cours', 'Connexion à la base « ' + i.nom + ' »…'); return lancer(DEFAUT, i, 'envoyer');
+    }
+    if (vierge()) { set('cours', 'Récupération de la base « ' + i.nom + ' »…'); return lancer(DEFAUT, i, 'recuperer'); }
+    try { if (sessionStorage.getItem('stram-auto-demande')) return set('off', 'Non connectée · cliquer sur Synchroniser'); sessionStorage.setItem('stram-auto-demande', '1'); } catch (e) { }
+    connecter(DEFAUT); // cet appareil a ses propres saisies : l'utilisateur choisit entre récupérer et fusionner
+  }
 
   function start() {
     stop();
-    if (!actif()) { set('off', 'Non connectée'); return; }
+    if (!actif()) { set('off', 'Non connectée'); auto(); return; }
     sync();
     timer = setInterval(() => sync(), PERIODE);
   }
@@ -134,9 +160,9 @@ const CLOUD = (() => {
 
   // envoi rapide après chaque modification
   S.onChange(col => { if (!actif() || col === '*' || col === 'sync') return; clearTimeout(deb); deb = setTimeout(() => sync(), 2500); });
-  window.addEventListener('online', () => sync());
+  window.addEventListener('online', () => actif() ? sync() : auto());
   document.addEventListener('click', e => { if (e.target && e.target.id === 'goCloud') { e.preventDefault(); document.querySelectorAll('.overlay').forEach(o => o.remove()); APP.go('parametres'); setTimeout(() => { const c = document.getElementById('cloudCard'); c && c.scrollIntoView({ behavior: 'smooth' }); }, 150); } });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync(); });
 
-  return { paint, start, sync, connecter, deconnecter, actif, cle, onState, get etat() { return etat; }, norm };
+  return { DEFAUT, auto, autoOff, paint, start, sync, connecter, deconnecter, actif, cle, onState, get etat() { return etat; }, norm };
 })();

@@ -7,6 +7,7 @@ S.load().then(() => {
   if (!S.data.projet.maitreOuvrage) S.patchProjet({ maitreOuvrage: 'SCI ALBA' });
   if (!S.data.projet.dateFinInitiale && S.data.projet.dateFinContractuelle) S.patchProjet({ dateFinInitiale: S.data.projet.dateFinContractuelle });
   APP.start();
+  NOUV.start();
   CLOUD.start();
   AUTH.login(() => AUTH.chip());
   ASSIST.ui();

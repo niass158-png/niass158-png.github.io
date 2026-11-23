@@ -37,6 +37,7 @@ const APP = (() => {
   }
   function badges() {
     mods.forEach(m => { const el = document.getElementById('nb_' + m.id); if (!el || !m.badge) return; const v = m.badge(); el.textContent = v || ''; el.style.display = v ? 'inline-block' : 'none'; });
+    if (typeof NOUV !== 'undefined') NOUV.paint();
   }
   function header() {
     const p = S.data.projet;
@@ -58,6 +59,7 @@ const APP = (() => {
     try { m.render(v); } catch (e) { console.error(e); v.innerHTML = `<div class="card err">Erreur d'affichage : ${U.esc(e.message)}</div>`; }
     UI.$$('#nav a, #bottomNav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + m.id));
     v.scrollTop = 0; window.scrollTo(0, 0);
+    if (typeof NOUV !== 'undefined') NOUV.vu(m.id);
   }
   const refresh = () => { header(); badges(); if (current) { const y = UI.$('#view').scrollTop; go(current); UI.$('#view').scrollTop = y; } };
 
@@ -80,7 +82,7 @@ const APP = (() => {
     nav(); header();
     window.addEventListener('hashchange', () => go(location.hash.slice(1)));
     UI.$('#menuBtn').onclick = () => document.body.classList.toggle('side-open');
-    UI.$('#btnSync').onclick = () => (typeof CLOUD !== 'undefined' && CLOUD.actif()) ? CLOUD.sync(true) : syncDialog();
+    UI.$('#btnSync').onclick = () => typeof CLOUD === 'undefined' ? syncDialog() : CLOUD.actif() ? CLOUD.sync(true) : CLOUD.autoOff() ? syncDialog() : CLOUD.connecter(CLOUD.DEFAUT);
     S.onChange(() => { const s = UI.$('#saveState'); s.textContent = '● Enregistrement…'; s.className = 'saving'; setTimeout(() => { s.textContent = '● Données enregistrées sur ce poste'; s.className = ''; }, 600); refresh(); });
     UI.$('#btnSync').innerHTML = icon('sync', 16) + ' Synchroniser'; UI.$('#menuBtn').innerHTML = icon('menu', 22);
     if (S.host && S.host.version) S.host.version().then(v => UI.$('#ver').textContent = v);
