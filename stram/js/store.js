@@ -3,7 +3,7 @@
 const S = (() => {
   const COLS = ['lots', 'entreprises', 'taches', 'articles', 'mouvements', 'fournisseurs', 'commandes', 'marches', 'situations',
     'budget', 'journal', 'reunions', 'actions', 'reserves', 'personnes', 'habilites', 'acces', 'documents',
-    'avancements', 'photos', 'utilisateurs', 'plans', 'essais', 'autocontroles', 'opr', 'fichiers'];
+    'avancements', 'photos', 'utilisateurs', 'plans', 'essais', 'autocontroles', 'opr', 'fichiers', 'rapports'];
   /* droits par rôle : collections modifiables */
   const ROLES = {
     'Administrateur': '*',
