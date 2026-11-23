@@ -1,8 +1,11 @@
 /* STRAM Suivi — pastilles : nouveautés du logiciel et modifications reçues des autres appareils */
 'use strict';
 const NOUV = (() => {
-  const VERSION = '2.6.0';
+  const VERSION = '2.6.1';
   const NOTES = [
+    { v: '2.6.1', date: '23/11/2026', mods: ['parametres'], items: [
+      'Mises à jour automatiques : le logiciel Windows télécharge seul chaque nouvelle version et propose de redémarrer (ou l\'installe à la fermeture).',
+      'La version web et l\'application Android se mettent à jour d\'elles-mêmes dès qu\'une nouvelle version est publiée.'] },
     { v: '2.6.0', date: '23/11/2026', mods: ['parametres', 'dashboard'], items: [
       'Connexion automatique à la base en ligne « Chantier STRAM » : plus de clé à saisir, chaque appareil se synchronise tout seul.',
       'Pastilles bleues dans le menu : elles signalent les modules modifiés depuis un autre appareil depuis votre dernière visite.',
@@ -81,7 +84,44 @@ const NOUV = (() => {
     return m;
   }
 
+  /* ---- mises à jour automatiques ---- */
+  const versionCourante = () => (document.getElementById('ver') || {}).textContent || VERSION;
+  const saisieEnCours = () => { const ae = document.activeElement; return !!(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.closest('#view, .modal') && ae.value) || [...document.querySelectorAll('.badge.b-red')].some(b => /non enregistr/.test(b.textContent)); };
+  function proposerRedemarrage(info) {
+    if (document.getElementById('majModal')) return;
+    const m = UI.modal({ title: 'Mise à jour ' + info.version + ' prête', body: `<div id="majModal"></div><p>La nouvelle version de STRAM Suivi a été téléchargée automatiquement.</p>${info.notes ? `<p class="muted">${E(info.notes)}</p>` : ''}<p>Elle s'installe en quelques secondes ; vos données sont conservées.</p>`,
+      actions: [{ label: 'À la fermeture du logiciel', onClick: () => { S.host.installUpdate('plus-tard'); UI.toast('La mise à jour s\'installera à la fermeture de STRAM Suivi'); } },
+        { label: 'Redémarrer maintenant', cls: 'primary', onClick: () => { S.persist(true).then(() => S.host.installUpdate('maintenant')); } }] });
+    return m;
+  }
+  let webVu = '';
+  async function verifierWeb() {
+    if (S.host || !/^https?:/.test(location.protocol)) return;
+    try {
+      const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return;
+      const j = await r.json(); if (!j.version || cmp(j.version, versionCourante()) <= 0 || webVu === j.version) return;
+      const go = async () => {
+        if (saisieEnCours()) return setTimeout(go, 30000);
+        webVu = j.version; try { if (sessionStorage.getItem('stram-maj-tentee') === j.version) return; sessionStorage.setItem('stram-maj-tentee', j.version); } catch (e) { }
+        UI.toast('Nouvelle version ' + j.version + ' : mise à jour en cours…');
+        try { const reg = await navigator.serviceWorker?.getRegistration(); if (reg) await reg.update(); } catch (e) { }
+        setTimeout(() => location.reload(), 1500);
+      };
+      go();
+    } catch (e) { /* hors ligne : nouvel essai plus tard */ }
+  }
+  function majAuto() {
+    if (S.host && S.host.onUpdateReady) {
+      S.host.onUpdateReady(info => proposerRedemarrage(info));
+      S.host.updateStatus && S.host.updateStatus().then(i => i && proposerRedemarrage(i));
+    } else {
+      setTimeout(verifierWeb, 5000); setInterval(verifierWeb, 15 * 60 * 1000);
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') verifierWeb(); });
+    }
+  }
+
   function start() {
+    majAuto();
     const f = document.querySelector('.sidebar .ver, .ver');
     if (f && !document.getElementById('btnNouv')) f.insertAdjacentHTML('afterend', '<button id="btnNouv" class="nv-btn" title="Nouveautés et modifications récentes">Nouveautés <b></b></button>');
     const b = document.getElementById('btnNouv'); if (b) b.onclick = () => panneau();
