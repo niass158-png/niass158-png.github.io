@@ -11,6 +11,32 @@ const CLOUD = (() => {
   const DEFAUT = 'STRAM-HHPC3-QXZ3E-WFCRY-B6PNY';
   const OFF = 'stram-cloud-off';
   let autoTimer = null;
+  /* lien direct : canal temps réel Supabase ; la base prévient les autres appareils à chaque envoi */
+  let ws = null, wsRef = 0, hb = null, topic = '', wsRetry = 0, direct = false;
+  async function tempsReel() {
+    if (!actif() || typeof WebSocket === 'undefined' || !(window.crypto && crypto.subtle)) return;
+    if (ws && ws.readyState <= 1) return;
+    try {
+      const h = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(cle())))).map(b => b.toString(16).padStart(2, '0')).join('');
+      topic = 'realtime:stram-' + h.slice(0, 24);
+      ws = new WebSocket(URL_.replace(/^https/, 'wss').replace('/rest/v1/rpc/', '/realtime/v1/websocket') + '?apikey=' + encodeURIComponent(APIKEY) + '&vsn=1.0.0');
+    } catch (e) { return; }
+    const envoyer = o => { try { ws && ws.readyState === 1 && ws.send(JSON.stringify(o)); } catch (e) { } };
+    ws.onopen = () => {
+      envoyer({ topic, event: 'phx_join', payload: { config: { broadcast: { self: false, ack: false }, presence: { key: '' }, postgres_changes: [], private: false } }, ref: String(++wsRef), join_ref: '1' });
+      clearInterval(hb); hb = setInterval(() => envoyer({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++wsRef) }), 25000);
+    };
+    ws.onmessage = ev => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.topic !== topic) return;
+      if (m.event === 'phx_reply' && m.payload && m.payload.status === 'ok' && !direct) { direct = true; wsRetry = 0; paint(); }
+      if (m.event === 'broadcast') { const p = (m.payload && (m.payload.payload || m.payload)) || {}; if (p.appareil !== S.data.appareil) sync(); }
+      if (m.event === 'phx_error' || m.event === 'phx_close') { try { ws.close(); } catch (e) { } }
+    };
+    ws.onclose = () => { clearInterval(hb); ws = null; if (direct) { direct = false; paint(); } if (actif()) setTimeout(tempsReel, Math.min(60000, 3000 * 2 ** (wsRetry++))); };
+    ws.onerror = () => { try { ws && ws.close(); } catch (e) { } };
+  }
+  function couperTempsReel() { try { ws && (ws.onclose = null, ws.close()); } catch (e) { } ws = null; clearInterval(hb); direct = false; }
   let etat = { st: 'off', msg: 'Non connectée', t: null };
   let busy = false, again = false, timer = null, deb = null;
   const subs = [];
@@ -22,7 +48,7 @@ const CLOUD = (() => {
   function paint() {
     const el = document.getElementById('lastSync'); if (!el) return;
     const h = etat.t ? ' à ' + etat.t.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
-    el.textContent = etat.st === 'ok' ? etat.msg + h : etat.msg; el.className = 'cloud-st ' + etat.st;
+    el.textContent = etat.st === 'ok' ? etat.msg + h + (direct ? ' · liaison directe' : '') : etat.msg; el.className = 'cloud-st ' + etat.st + (direct ? ' direct' : '');
     const ck = document.getElementById('ckSt'); if (ck) { ck.textContent = el.textContent; ck.className = 'cloud-st big ' + etat.st; }
     const b = document.getElementById('btnSync');
     if (b) { b.classList.toggle('cloud-on', actif()); b.dataset.st = etat.st; b.title = actif() ? 'Base en ligne : ' + etat.msg + h + ' (cliquer pour synchroniser maintenant)' : 'Synchroniser avec le mobile ou le PC'; }
@@ -153,16 +179,16 @@ const CLOUD = (() => {
   function start() {
     stop();
     if (!actif()) { set('off', 'Non connectée'); auto(); return; }
-    sync();
-    timer = setInterval(() => sync(), PERIODE);
+    sync(); tempsReel();
+    timer = setInterval(() => { sync(); tempsReel(); }, PERIODE);
   }
-  function stop() { clearInterval(timer); timer = null; }
+  function stop() { clearInterval(timer); timer = null; couperTempsReel(); }
 
   // envoi rapide après chaque modification
-  S.onChange(col => { if (!actif() || col === '*' || col === 'sync') return; clearTimeout(deb); deb = setTimeout(() => sync(), 2500); });
+  S.onChange(col => { if (!actif() || col === '*' || col === 'sync') return; clearTimeout(deb); deb = setTimeout(() => sync(), 800); });
   window.addEventListener('online', () => actif() ? sync() : auto());
   document.addEventListener('click', e => { if (e.target && e.target.id === 'goCloud') { e.preventDefault(); document.querySelectorAll('.overlay').forEach(o => o.remove()); APP.go('parametres'); setTimeout(() => { const c = document.getElementById('cloudCard'); c && c.scrollIntoView({ behavior: 'smooth' }); }, 150); } });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync(); });
 
-  return { DEFAUT, auto, autoOff, paint, start, sync, connecter, deconnecter, actif, cle, onState, get etat() { return etat; }, norm };
+  return { get direct() { return direct; }, tempsReel, DEFAUT, auto, autoOff, paint, start, sync, connecter, deconnecter, actif, cle, onState, get etat() { return etat; }, norm };
 })();

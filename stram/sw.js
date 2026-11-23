@@ -1,5 +1,5 @@
 /* STRAM Suivi — fonctionnement hors connexion (version mobile) */
-const C = 'stram-suivi-v2.6.1';
+const C = 'stram-suivi-v2.6.2';
 const FILES = ['./', 'index.html', 'css/app.css', 'manifest.webmanifest', 'vendor/xlsx.full.min.js', 'vendor/qrcode.js', 'vendor/jsQR.js', 'js/import.js', 'js/planning_v5.js', 'js/uix.js', 'js/modules/rapports.js', 'js/modules/qualite.js', 'js/assistant.js', 'js/auth.js', 'js/util.js', 'js/seed.js', 'js/store.js', 'js/sync.js', 'js/nouveautes.js', 'js/nomenclature.js', 'js/planning.js', 'js/ui.js', 'js/app.js',
   'js/modules/dashboard.js', 'js/modules/planning.js', 'js/modules/stock.js', 'js/modules/commandes.js', 'js/modules/finances.js', 'js/modules/chantier.js', 'js/modules/acces.js', 'js/modules/parametres.js', 'js/boot.js', 'icons/icon-192.png', 'icons/icon-512.png', 'fonts/jakarta-400.woff2', 'fonts/jakarta-500.woff2', 'fonts/jakarta-600.woff2', 'fonts/jakarta-700.woff2', 'fonts/jakarta-800.woff2'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(C).then(c => c.addAll(FILES))); self.skipWaiting(); });

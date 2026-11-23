@@ -1,8 +1,10 @@
 /* STRAM Suivi — pastilles : nouveautés du logiciel et modifications reçues des autres appareils */
 'use strict';
 const NOUV = (() => {
-  const VERSION = '2.6.1';
+  const VERSION = '2.6.2';
   const NOTES = [
+    { v: '2.6.2', date: '23/11/2026', mods: ['dashboard'], items: [
+      'Liaison directe avec la base de données : une saisie faite sur le PC apparaît en une à deux secondes sur la version web et le mobile, et inversement (point vert « liaison directe » en bas du menu).'] },
     { v: '2.6.1', date: '23/11/2026', mods: ['parametres'], items: [
       'Mises à jour automatiques : le logiciel Windows télécharge seul chaque nouvelle version et propose de redémarrer (ou l\'installe à la fermeture).',
       'La version web et l\'application Android se mettent à jour d\'elles-mêmes dès qu\'une nouvelle version est publiée.'] },

@@ -307,3 +307,4 @@ input.ro{background:var(--bg)}
 .nv-journal li{padding:4px 0;font-size:13px}
 .nv-ver{border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-bottom:8px}.nv-ver.new{border-color:#78A3C8;background:#F3F7FB}.nv-ver ul{margin:6px 0 0;padding-left:18px}
 .nv-ver .ntag{margin-left:6px}
+.cloud-st.ok.direct::before{background:#3F9A5C;box-shadow:0 0 0 3px rgba(63,154,92,.25)}
