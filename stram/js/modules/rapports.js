@@ -59,10 +59,10 @@ const RAPPORTS = (() => {
     return { Tw, actifs, next, horizon };
   }
   const enreg = (type, d0) => S.list('rapports').find(x => x.type === type && x.debut === d0) || null;
-  const vierge = () => ({ redacteur: S.user?.nom || S.data.projet.utilisateur || '', textes: {}, lignes: {} });
+  const vierge = () => ({ redacteur: S.user?.nom || S.data.projet.utilisateur || '', textes: {}, lignes: {}, ajouts: { semaine: [], programme: [] }, masques: [] });
   function brouillon(type, d0) {
     const cle = type + ':' + d0;
-    if (st.cle !== cle || !st.draft) { const r = enreg(type, d0); st.draft = r ? JSON.parse(JSON.stringify({ redacteur: r.redacteur || '', textes: r.textes || {}, lignes: r.lignes || {} })) : vierge(); st.cle = cle; st.modifie = false; }
+    if (st.cle !== cle || !st.draft) { const r = enreg(type, d0); st.draft = r ? JSON.parse(JSON.stringify({ redacteur: r.redacteur || '', textes: r.textes || {}, lignes: r.lignes || {}, ajouts: r.ajouts || { semaine: [], programme: [] }, masques: r.masques || [] })) : vierge(); st.cle = cle; st.modifie = false; }
     return st.draft;
   }
 
@@ -79,6 +79,9 @@ const RAPPORTS = (() => {
     const stF = t => ov(t).statut || statutAuto(t, R);
     const ovc = t => ov(t).commentaire ? `<div class="cm">${E(ov(t).commentaire)}</div>` : '';
     const txt = k => String((draft.textes || {})[k] || '').trim();
+    const masq = new Set(draft.masques || []);
+    const ajouts = k => ((draft.ajouts || {})[k] || []).filter(a => String(a.nom || '').trim()).map(a => { const t = a.tacheId ? S.get('taches', a.tacheId) : null; return Object.assign({}, a, { statut: a.statut || (t ? statutAuto(t, R) : 'À faire') }); });
+    const ligneAj = a => [E(a.lot || '—'), E(a.nom) + (a.commentaire ? `<div class="cm">${E(a.commentaire)}</div>` : ''), E(a.interv || '—'), a.fin ? U.fr(a.fin).slice(0, 5) : '', `<span class="${stCls(a.statut)}">${E(a.statut)}</span>`];
     const auteur = draft.redacteur || S.user?.nom || p.utilisateur || '';
     const ecart = P.ecartFin;
     const av = (p.avenantsDelai || []);
@@ -91,11 +94,11 @@ const RAPPORTS = (() => {
     const faits = Tw.filter(t => inP(R(t.id).prev.fin) && R(t.id).etat === 'Terminée');
     const saisis = S.list('avancements').filter(a => inP(a.date) && !/importé/i.test(a.commentaire || ''));
     const parLot = {}; [...faits, ...saisis.map(a => S.get('taches', a.tacheId)).filter(Boolean)].forEach(t => { const l = lotDe(t); (parLot[l] = parLot[l] || new Set()).add(t.nom); });
-    const cpt = {}; L.actifs.forEach(t => { const s = stF(t); cpt[s] = (cpt[s] || 0) + 1; });
+    const cpt = {}; L.actifs.filter(t => !masq.has(t.id)).forEach(t => { const s = stF(t); cpt[s] = (cpt[s] || 0) + 1; }); ajouts('semaine').forEach(a => { cpt[a.statut] = (cpt[a.statut] || 0) + 1; });
     const synth = [
       `Avancement global : <b>${P.avancementGlobal} %</b> (attendu ${P.avancementAttendu} %)`,
       `Fin contractuelle : <b>${U.fr(p.dateFinContractuelle)}</b>${av.length ? ` (initiale ${U.fr(p.dateFinInitiale)}, ${av.length} prolongation(s))` : ''} · fin prévisionnelle : <b class="${ecart > 0 ? 'bad' : ''}">${U.fr(P.finPrevue)}</b> · ${ecart > 0 ? `<b class="bad">dépassement prévisible de ${ecart} j ouvrés</b>` : '<b class="ok">dans les délais</b>'}`,
-      L.actifs.length ? `Travaux de la période : ${STATUTS.filter(x => cpt[x.k]).map(x => `<span class="${x.cls}">${cpt[x.k]} ${x.k.toLowerCase()}</span>`).join(' · ')}` : '',
+      Object.keys(cpt).length ? `Travaux de la période : ${STATUTS.filter(x => cpt[x.k]).map(x => `<span class="${x.cls}">${cpt[x.k]} ${x.k.toLowerCase()}</span>`).join(' · ')}` : '',
       ...Object.entries(parLot).slice(0, 10).map(([l, s]) => `${E(l)} : ${E([...s].slice(0, 3).map(nm => U.norm(nm).startsWith(U.norm(l).slice(0, 6)) ? nm.replace(/^[^–-]+[–-]\s*/, '') : nm).join(', '))}`),
     ].filter(Boolean);
     h += sec(n++, type === 'hebdo' ? 'Synthèse de la semaine' : 'Synthèse du mois', (txt('faits') ? `<p class="sst">Faits marquants</p>${para(txt('faits'))}<p class="sst">Indicateurs</p>` : '') + `<ul class="syn">${synth.map(x => `<li>${x}</li>`).join('')}</ul>`);
@@ -112,10 +115,10 @@ const RAPPORTS = (() => {
     // 03 travaux de la période
     const { actifs, next, horizon } = L;
     const comm = t => { const a = saisis.filter(x => x.tacheId === t.id).sort(U.by('date')).pop(); return a ? `<div class="cm">${a.av} %${a.commentaire ? ' — ' + E(a.commentaire) : ''}</div>` : ''; };
-    h += sec(n++, type === 'hebdo' ? 'Travaux de la semaine' : 'Travaux du mois', tbl(['Lot', 'Travaux', 'Intervenant', 'Fin prévue', 'Statut'], actifs.map(t => { const r = R(t.id), s = stF(t); return [E(lotDe(t)), E(t.nom) + comm(t) + ovc(t), E(interv(t)), U.fr(r.prev.fin).slice(0, 5), `<span class="${stCls(s)}">${s}</span>`]; }), 'Aucun travail sur la période.'), LEG);
+    h += sec(n++, type === 'hebdo' ? 'Travaux de la semaine' : 'Travaux du mois', tbl(['Lot', 'Travaux', 'Intervenant', 'Fin prévue', 'Statut'], [...actifs.filter(t => !masq.has(t.id)).map(t => { const r = R(t.id), s = stF(t); return [E(lotDe(t)), E(t.nom) + comm(t) + ovc(t), E(interv(t)), U.fr(r.prev.fin).slice(0, 5), `<span class="${stCls(s)}">${s}</span>`]; }), ...ajouts('semaine').map(ligneAj)], 'Aucun travail sur la période.'), LEG);
 
     // 04 programme
-    h += sec(n++, type === 'hebdo' ? 'Programme de la semaine prochaine' : 'Programme du mois prochain', tbl(['Lot', 'Travaux', 'Intervenant', 'Fin prévue', 'Statut'], next.map(t => { const r = R(t.id), s = stF(t); return [E(lotDe(t)), E(t.nom) + ovc(t), E(interv(t)), U.fr(r.prev.fin).slice(0, 5), `<span class="${stCls(s)}">${s}</span>`]; }), 'Rien de prévu.'), LEG);
+    h += sec(n++, type === 'hebdo' ? 'Programme de la semaine prochaine' : 'Programme du mois prochain', tbl(['Lot', 'Travaux', 'Intervenant', 'Fin prévue', 'Statut'], [...next.filter(t => !masq.has(t.id)).map(t => { const r = R(t.id), s = stF(t); return [E(lotDe(t)), E(t.nom) + ovc(t), E(interv(t)), U.fr(r.prev.fin).slice(0, 5), `<span class="${stCls(s)}">${s}</span>`]; }), ...ajouts('programme').map(ligneAj)], 'Rien de prévu.'), LEG);
 
     // 05 retards
     const late = T.filter(t => R(t.id).enRetard).sort((a, b) => (R(a.id).marge ?? 999) - (R(b.id).marge ?? 999));
@@ -206,6 +209,15 @@ const RAPPORTS = (() => {
       else if (o.statut !== auto && !String(o.commentaire || '').trim()) add('Alerte', 'Statuts', `${nm(t)} : statut modifié (« ${auto} » → « ${o.statut} ») sans justification. Ajouter un commentaire.`);
       if (['En cours', 'En retard'].includes(o.statut) && !(r.av > 0) && !t.debutReel) add('Alerte', 'Statuts', `${nm(t)} est déclarée « ${o.statut} » sans aucun avancement saisi.`, 'planning');
     });
+    // lignes ajoutées ou retirées
+    ['semaine', 'programme'].forEach(k => ((draft.ajouts || {})[k] || []).forEach(a => {
+      if (!String(a.nom || '').trim()) { if (a.lot || a.commentaire) add('Alerte', 'Statuts', `Une ligne ajoutée (${k === 'semaine' ? 'travaux de la période' : 'programme'}) n'a pas d'intitulé : elle ne sera pas imprimée.`); return; }
+      const t = a.tacheId ? S.get('taches', a.tacheId) : null, r = t && R(t.id);
+      if (t && [...L.actifs, ...L.next].some(x => x.id === t.id) && !(draft.masques || []).includes(t.id)) add('Info', 'Statuts', `« ${a.nom} » est ajoutée alors qu'elle figure déjà dans le tableau : elle apparaîtra deux fois.`);
+      if (r && a.statut === 'Fait' && r.etat !== 'Terminée') add('Erreur', 'Statuts', `« ${a.nom} » (ligne ajoutée) est déclarée « Fait » mais son avancement saisi est de ${r.av ?? 0} %.`, 'planning');
+      if (!t && !a.interv) add('Info', 'Statuts', `« ${a.nom} » (ligne ajoutée) n'a pas d'intervenant.`);
+    }));
+    if ((draft.masques || []).length) add('Info', 'Statuts', `${draft.masques.length} tâche(s) du planning retirée(s) du rapport.`);
     // avancements
     const parT = {}; S.list('avancements').forEach(a => (parT[a.tacheId] = parT[a.tacheId] || []).push(a));
     Object.entries(parT).forEach(([id, A]) => {
@@ -343,6 +355,8 @@ const RAPPORTS = (() => {
       if (ro) return;
       UI.$$('[data-tx]', body).forEach(x => { dr.textes[x.dataset.tx] = x.value; });
       const red = UI.$('#rRed', body); if (red) dr.redacteur = red.value;
+      dr.ajouts = dr.ajouts || { semaine: [], programme: [] };
+      UI.$$('[data-aj]', body).forEach(tr => { const [k, i] = tr.dataset.aj.split(':'); const a = dr.ajouts[k][+i]; if (!a) return; UI.$$('[data-af]', tr).forEach(f => { a[f.dataset.af] = f.value; }); });
       UI.$$('[data-ls]', body).forEach(x => { const id = x.dataset.ls; const c = UI.$(`[data-lc="${id}"]`, body); const o = { statut: x.value, commentaire: c ? c.value.trim() : '' }; if (o.statut || o.commentaire) dr.lignes[id] = o; else delete dr.lignes[id]; });
     };
     const marque = () => { if (!st.modifie) { st.modifie = true; const tb = UI.$('.toolbar', v); if (tb && !UI.$('.b-red', tb)) UI.$('.sep', tb).insertAdjacentHTML('beforebegin', '<span class="badge b-red">Modifications non enregistrées</span>'); } };
@@ -354,20 +368,44 @@ const RAPPORTS = (() => {
 
     if (st.vue === 'remplir') {
       const ligne = t => { const r = R(t.id), auto = statutAuto(t, R), o = dr.lignes[t.id] || {};
-        return `<tr><td>${E(lotDe(t))}</td><td><b>${E(t.nom)}</b><div class="muted">${E(interv(t))} · fin prévue ${U.fr(r.prev.fin)}</div></td><td style="white-space:nowrap">${r.av === null ? '<span class="muted">—</span>' : r.av + ' %'}</td>
+        return `<tr><td>${ro ? '' : `<button class="icon-btn" data-masq="${t.id}" title="Retirer cette tâche du rapport">✕</button>`}</td><td>${E(lotDe(t))}</td><td><b>${E(t.nom)}</b><div class="muted">${E(interv(t))} · fin prévue ${U.fr(r.prev.fin)}</div></td><td style="white-space:nowrap">${r.av === null ? '<span class="muted">—</span>' : r.av + ' %'}</td>
           <td>${UI.badge(auto, (STATUTS.find(x => x.k === auto) || {}).b)}</td>
           <td><select data-ls="${t.id}" ${ro ? 'disabled' : ''}><option value="">Automatique</option>${STATUTS.map(x => `<option ${o.statut === x.k ? 'selected' : ''}>${x.k}</option>`).join('')}</select></td>
           <td><input data-lc="${t.id}" value="${E(o.commentaire || '')}" placeholder="${o.statut && o.statut !== auto ? 'Justification requise' : 'Commentaire (facultatif)'}" ${ro ? 'disabled' : ''} style="width:100%"></td></tr>`; };
-      const tab = (titre2, rows) => `<div class="card"><h3>${titre2} <span class="muted">(${rows.length})</span></h3>${rows.length ? `<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Lot</th><th>Travaux</th><th>Avct</th><th>Statut calculé</th><th>Statut retenu</th><th>Commentaire du rapport</th></tr></thead><tbody>${rows.map(ligne).join('')}</tbody></table></div>` : '<p class="muted">Aucune tâche.</p>'}</div>`;
+      dr.ajouts = dr.ajouts || { semaine: [], programme: [] }; dr.masques = dr.masques || [];
+      const travaux = L.Tw.slice().sort((x, y) => x.nom.localeCompare(y.nom));
+      const dis = ro ? 'disabled' : '';
+      const ligneM = t => `<tr class="muted"><td>${ro ? '' : `<button class="icon-btn" data-unm="${t.id}" title="Remettre dans le rapport">↺</button>`}</td><td>${E(lotDe(t))}</td><td><s>${E(t.nom)}</s> <span class="muted">— retirée du rapport (↺ pour la remettre)</span></td><td></td><td></td><td></td><td></td></tr>`;
+      const ligneA = (k, a, i) => { const t = a.tacheId ? S.get('taches', a.tacheId) : null, r = t && R(t.id), auto = t ? statutAuto(t, R) : '';
+        return `<tr data-aj="${k}:${i}" class="ajout"><td>${ro ? '' : `<button class="icon-btn" data-delaj="${k}:${i}" title="Supprimer la ligne">✕</button>`}</td><td><input data-af="lot" value="${E(a.lot || '')}" placeholder="Lot" ${dis} style="width:100%;min-width:90px"></td>
+          <td><input data-af="nom" list="rTachesL" value="${E(a.nom || '')}" placeholder="Tâche du planning ou nouvelle tâche" ${dis} style="width:100%;min-width:220px;max-width:340px;font-weight:600">
+            <div style="display:flex;gap:6px;margin-top:4px;max-width:340px"><input data-af="interv" value="${E(a.interv || '')}" placeholder="Intervenant" ${dis} style="flex:1;min-width:0"><input data-af="fin" type="date" value="${E(a.fin || '')}" title="Fin prévue" ${dis} style="width:150px"></div></td>
+          <td style="white-space:nowrap">${r && r.av !== null ? r.av + ' %' : '<span class="muted">—</span>'}</td>
+          <td>${auto ? UI.badge(auto, (STATUTS.find(x => x.k === auto) || {}).b) : UI.badge('Ajoutée', 'b-cyan')}</td>
+          <td><select data-af="statut" ${dis}>${t ? '<option value="">Automatique</option>' : ''}${STATUTS.map(x => `<option ${a.statut === x.k ? 'selected' : ''}>${x.k}</option>`).join('')}</select></td>
+          <td><input data-af="commentaire" value="${E(a.commentaire || '')}" placeholder="Commentaire (facultatif)" ${dis} style="width:100%"></td></tr>`; };
+      const tab = (titre2, rows, k) => { const vis = rows.filter(t => !dr.masques.includes(t.id)), mq = rows.filter(t => dr.masques.includes(t.id)), aj = dr.ajouts[k] || [];
+        const nb = vis.length + aj.length;
+        return `<div class="card"><h3>${titre2} <span class="muted">(${nb})</span></h3>${nb || mq.length ? `<div style="overflow-x:auto"><table class="tbl"><thead><tr><th style="width:34px"></th><th>Lot</th><th>Travaux</th><th>Avct</th><th>Statut calculé</th><th>Statut retenu</th><th>Commentaire du rapport</th></tr></thead><tbody>${vis.map(ligne).join('')}${aj.map((a, i) => ligneA(k, a, i)).join('')}${mq.map(ligneM).join('')}</tbody></table></div>` : '<p class="muted">Aucune tâche.</p>'}
+          ${ro ? '' : `<div style="margin-top:10px"><button class="btn" data-addaj="${k}">+ Ajouter une tâche</button> <span class="muted" style="margin-left:8px">Choisissez une tâche du planning dans la liste ou écrivez une nouvelle tâche.</span></div>`}</div>`; };
       body.innerHTML = `${fige ? `<div class="card" style="border-left:4px solid var(--caramel)"><b>Rapport ${E(rec.statut.toLowerCase())}</b> par ${E(rec.valideur || '')} le ${U.fr(rec.valideLe)}${rec.transmisLe ? `, transmis le ${U.fr(rec.transmisLe)}` : ''}. Son contenu est figé ; « Rouvrir » le repasse en brouillon.</div>` : ''}
         ${!peut ? '<div class="card"><b>Lecture seule</b> : votre profil ne permet pas de remplir les rapports.</div>' : ''}
         <div class="card"><div class="grid-form"><div class="field"><label>Rédacteur</label><input id="rRed" value="${E(dr.redacteur || '')}" ${ro ? 'disabled' : ''}></div><div class="field"><label>Période</label><input value="${E(titre)}" disabled></div></div></div>
-        ${tab(st.type === 'hebdo' ? 'Travaux de la semaine' : 'Travaux du mois', L.actifs)}
-        ${tab(st.type === 'hebdo' ? 'Programme de la semaine prochaine' : 'Programme du mois prochain', L.next)}
+        ${tab(st.type === 'hebdo' ? 'Travaux de la semaine' : 'Travaux du mois', L.actifs, 'semaine')}
+        ${tab(st.type === 'hebdo' ? 'Programme de la semaine prochaine' : 'Programme du mois prochain', L.next, 'programme')}
+        <datalist id="rTachesL">${travaux.map(t => `<option value="${E(t.nom)}">`).join('')}</datalist>
         <div class="card"><h3>Textes du rapport</h3><div class="grid-form">${textes.map(([k, l, hint]) => `<div class="field full"><label>${E(l)}</label><textarea data-tx="${k}" rows="4" placeholder="${E(hint)}" ${ro ? 'disabled' : ''}>${E(dr.textes[k] || '')}</textarea></div>`).join('')}</div>
           <p class="muted" style="margin-top:8px">Les rubriques laissées vides n'apparaissent pas dans le PDF. Les tableaux (délais, magasin, commandes, réserves, finances) sont remplis automatiquement à partir des données saisies.</p></div>
         <div class="card"><h3>Définition des statuts</h3><table class="tbl"><tbody>${STATUTS.map(x => `<tr><td style="width:130px">${UI.badge(x.k, x.b)}</td><td>${E(x.def)}</td></tr>`).join('')}</tbody></table>
           <p class="muted" style="margin-top:8px">Le statut est calculé automatiquement. Vous pouvez le remplacer ligne par ligne ; tout écart avec le calcul doit être justifié dans le commentaire.</p></div>`;
+      const redessine = () => { st.modifie = true; const y = UI.$('#view') ? UI.$('#view').scrollTop : 0; APP.refresh(); if (UI.$('#view')) UI.$('#view').scrollTop = y; };
+      UI.$$('[data-addaj]', body).forEach(b => b.onclick = () => { lire(); dr.ajouts[b.dataset.addaj].push({ k: U.uid(), lot: '', nom: '', interv: '', fin: '', statut: b.dataset.addaj === 'programme' ? 'À faire' : 'En cours', commentaire: '' }); redessine(); const L2 = UI.$$(`[data-aj^="${b.dataset.addaj}:"] [data-af="nom"]`); L2.length && L2[L2.length - 1].focus(); });
+      UI.$$('[data-delaj]', body).forEach(b => b.onclick = () => { lire(); const [k, i] = b.dataset.delaj.split(':'); dr.ajouts[k].splice(+i, 1); redessine(); });
+      UI.$$('[data-masq]', body).forEach(b => b.onclick = () => { lire(); if (!dr.masques.includes(b.dataset.masq)) dr.masques.push(b.dataset.masq); redessine(); });
+      UI.$$('[data-unm]', body).forEach(b => b.onclick = () => { lire(); dr.masques = dr.masques.filter(x => x !== b.dataset.unm); redessine(); });
+      UI.$$('[data-af="nom"]', body).forEach(x => x.addEventListener('change', () => { const t = travaux.find(t => t.nom === x.value.trim()); if (!t) { lire(); const [k, i] = x.closest('[data-aj]').dataset.aj.split(':'); dr.ajouts[k][+i].tacheId = ''; return; }
+        lire(); const [k, i] = x.closest('[data-aj]').dataset.aj.split(':'); const a = dr.ajouts[k][+i]; const r = R(t.id);
+        Object.assign(a, { tacheId: t.id, lot: a.lot || lotDe(t), interv: a.interv || (interv(t) !== '—' ? interv(t) : ''), fin: a.fin || (r ? r.prev.fin : ''), statut: '' }); redessine(); }));
       UI.$$('input,textarea,select', body).forEach(x => x.addEventListener(x.tagName === 'SELECT' ? 'change' : 'input', () => { lire(); marque(); if (x.dataset.ls !== undefined) { const c = UI.$(`[data-lc="${x.dataset.ls}"]`, body); if (c) c.placeholder = x.value ? 'Justification requise' : 'Commentaire (facultatif)'; } }));
     } else if (st.vue === 'controle') {
       const doms = [...new Set(ctl.map(c => c.dom))];
